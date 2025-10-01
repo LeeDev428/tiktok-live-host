@@ -241,28 +241,11 @@ include 'layout/header.php';
                 
                 <div class="form-group full-width">
                     <label for="solds">Solds:</label>
-                    <input type="text" id="solds" name="solds" placeholder="Enter total solds amount">
-                </div>
-                
-                <div class="form-group full-width">
-                    <label for="sold_photo">📱 Total Sold Photo:</label>
-                    <div class="photo-upload-container">
-                        <input type="file" id="sold_photo" name="sold_photo" accept="image/*" class="file-input">
-                        <div class="upload-placeholder" onclick="document.getElementById('sold_photo').click()">
-                            <span class="upload-icon">📷</span>
-                            <p>Upload your total sold photo</p>
-                            <span class="btn btn-outline">Choose Photo</span>
-                        </div>
-                        <div id="photo-preview" class="photo-preview" style="display: none;">
-                            <img id="preview-image" src="" alt="Preview">
-                            <button type="button" class="remove-photo" onclick="removePhoto()">×</button>
-                        </div>
-                    </div>
+                    <input type="number" id="solds" name="solds" placeholder="Enter total solds amount" min="0" step="1">
                 </div>
                 
                 <button type="submit" class="btn btn-primary btn-large">
-                    <span class="btn-icon">⏰</span>
-                    Schedule Time Slot
+                    Submit
                 </button>
                 
                 <input type="hidden" id="custom_slot_data" name="custom_slot_data" value="">
