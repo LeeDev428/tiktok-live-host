@@ -222,6 +222,67 @@ INSERT INTO `live_host_sales` (`seller_id`, `product_id`, `product_name`, `quant
 (3, 7, 'Coffee Tumbler', 6, 24.99, 149.94, 8.00, 11.99, '2025-10-02 11:45:00', 'confirmed'),
 (2, 8, 'Yoga Mat', 1, 39.99, 39.99, 10.00, 3.99, '2025-10-02 13:20:00', 'pending');
 
+-- Time Slot Schedules table (based on the scheduling form)
+CREATE TABLE `time_slot_schedules` (
+    `id` int(11) NOT NULL AUTO_INCREMENT,
+    `seller_id` int(11) NOT NULL,
+    `schedule_date` date NOT NULL,
+    `duration` enum('3-hour', '4-hour') NOT NULL,
+    `time_slot` varchar(50) NOT NULL,
+    `solds_quantity` int(11) DEFAULT 0,
+    `total_sold_photo` varchar(255) DEFAULT NULL,
+    `status` enum('scheduled', 'in_progress', 'completed', 'cancelled') NOT NULL DEFAULT 'scheduled',
+    `notes` text DEFAULT NULL,
+    `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    KEY `idx_seller_id` (`seller_id`),
+    KEY `idx_schedule_date` (`schedule_date`),
+    KEY `idx_duration` (`duration`),
+    KEY `idx_status` (`status`),
+    FOREIGN KEY (`seller_id`) REFERENCES `users`(`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Available time slots table (for the dropdown options)
+CREATE TABLE `available_time_slots` (
+    `id` int(11) NOT NULL AUTO_INCREMENT,
+    `slot_name` varchar(50) NOT NULL,
+    `start_time` time NOT NULL,
+    `end_time` time NOT NULL,
+    `duration_type` enum('3-hour', '4-hour') NOT NULL,
+    `is_active` tinyint(1) NOT NULL DEFAULT 1,
+    `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    KEY `idx_duration_type` (`duration_type`),
+    KEY `idx_active` (`is_active`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Insert available time slots for both 3-hour and 4-hour shifts
+INSERT INTO `available_time_slots` (`slot_name`, `start_time`, `end_time`, `duration_type`, `is_active`) VALUES
+-- 3-hour shifts
+('Morning (7:00 AM - 10:00 AM)', '07:00:00', '10:00:00', '3-hour', 1),
+('Mid-Morning (10:00 AM - 1:00 PM)', '10:00:00', '13:00:00', '3-hour', 1),
+('Afternoon (1:00 PM - 4:00 PM)', '13:00:00', '16:00:00', '3-hour', 1),
+('Late Afternoon (4:00 PM - 7:00 PM)', '16:00:00', '19:00:00', '3-hour', 1),
+('Evening (7:00 PM - 10:00 PM)', '19:00:00', '22:00:00', '3-hour', 1),
+('Night (10:00 PM - 1:00 AM)', '22:00:00', '01:00:00', '3-hour', 1),
+
+-- 4-hour shifts
+('Extended Morning (7:00 AM - 11:00 AM)', '07:00:00', '11:00:00', '4-hour', 1),
+('Late Morning (9:00 AM - 1:00 PM)', '09:00:00', '13:00:00', '4-hour', 1),
+('Afternoon Extended (1:00 PM - 5:00 PM)', '13:00:00', '17:00:00', '4-hour', 1),
+('Evening Extended (5:00 PM - 9:00 PM)', '17:00:00', '21:00:00', '4-hour', 1),
+('Night Extended (8:00 PM - 12:00 AM)', '20:00:00', '00:00:00', '4-hour', 1),
+('Late Night (9:00 PM - 1:00 AM)', '21:00:00', '01:00:00', '4-hour', 1);
+
+-- Insert sample time slot schedules
+INSERT INTO `time_slot_schedules` (`seller_id`, `schedule_date`, `duration`, `time_slot`, `solds_quantity`, `status`) VALUES
+(2, '2025-10-03', '3-hour', 'Morning (7:00 AM - 10:00 AM)', 15, 'scheduled'),
+(2, '2025-10-04', '4-hour', 'Late Morning (9:00 AM - 1:00 PM)', 0, 'scheduled'),
+(3, '2025-10-03', '4-hour', 'Evening Extended (5:00 PM - 9:00 PM)', 22, 'completed'),
+(3, '2025-10-05', '3-hour', 'Afternoon (1:00 PM - 4:00 PM)', 0, 'scheduled'),
+(4, '2025-10-03', '3-hour', 'Evening (7:00 PM - 10:00 PM)', 8, 'in_progress');
+
 -- Insert sample daily summaries
 INSERT INTO `live_host_daily_summary` (`seller_id`, `summary_date`, `total_sales`, `total_items_sold`, `total_commission`, `hours_worked`, `streams_count`) VALUES
 (2, '2025-10-01', 325.92, 8, 40.50, 6.0, 2),
