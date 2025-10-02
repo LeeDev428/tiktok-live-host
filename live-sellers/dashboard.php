@@ -10,270 +10,343 @@ $current_user = get_logged_in_user();
 // Get seller dashboard stats
 $db = getDB();
 
-// Count seller's streams
-$stmt = $db->prepare("SELECT COUNT(*) as total FROM live_streams WHERE seller_id = ?");
-$stmt->execute([$current_user['id']]);
-$total_streams = $stmt->fetch()['total'];
-
-// Count active streams
-$stmt = $db->prepare("SELECT COUNT(*) as total FROM live_streams WHERE seller_id = ? AND status = 'live'");
-$stmt->execute([$current_user['id']]);
-$active_streams = $stmt->fetch()['total'];
-
-// Get recent streams
+// Get user's total working days (count of attendance records)
 $stmt = $db->prepare("
-    SELECT * FROM live_streams 
-    WHERE seller_id = ? 
-    ORDER BY created_at DESC 
-    LIMIT 5
+    SELECT COUNT(DISTINCT DATE(attendance_date)) as total_working_days 
+    FROM seller_attendance 
+    WHERE seller_id = ? AND status = 'completed'
 ");
 $stmt->execute([$current_user['id']]);
-$recent_streams = $stmt->fetchAll();
+$user_working_days = $stmt->fetch()['total_working_days'];
+
+// Get user's total working hours
+$stmt = $db->prepare("
+    SELECT COALESCE(SUM(ats.duration_hours), 0) as total_working_hours
+    FROM seller_attendance sa
+    JOIN attendance_time_slots ats ON sa.time_slot_id = ats.id
+    WHERE sa.seller_id = ? AND sa.status = 'completed'
+");
+$stmt->execute([$current_user['id']]);
+$user_working_hours = $stmt->fetch()['total_working_hours'];
+
+// Get all users with their stats for ranking
+$stmt = $db->prepare("
+    SELECT 
+        u.id,
+        u.full_name,
+        COUNT(DISTINCT DATE(sa.attendance_date)) as working_days,
+        COALESCE(SUM(ats.duration_hours), 0) as working_hours
+    FROM users u
+    LEFT JOIN seller_attendance sa ON u.id = sa.seller_id AND sa.status = 'completed'
+    LEFT JOIN attendance_time_slots ats ON sa.time_slot_id = ats.id
+    WHERE u.role = 'live_seller'
+    GROUP BY u.id, u.full_name
+    ORDER BY working_hours DESC, working_days DESC
+");
+$stmt->execute();
+$all_users_rankings = $stmt->fetchAll();
+
+// Find current user's rank
+$current_user_rank = 0;
+foreach ($all_users_rankings as $index => $user) {
+    if ($user['id'] == $current_user['id']) {
+        $current_user_rank = $index + 1;
+        break;
+    }
+}
 
 $page_title = 'Live Seller Dashboard';
 include 'layout/header.php';
 ?>
 
-<div class="dashboard-container">
-    <!-- Dashboard Header -->
-    <div class="dashboard-header">
-        <div class="header-content">
-            <h1>Welcome back, <?php echo htmlspecialchars($current_user['full_name']); ?>! 🎯</h1>
-            <p>Ready to create engaging live streams and connect with your audience?</p>
-            <div class="header-notice">
-                <span class="notice-icon">📅</span>
-                <span>Manage your schedule and attendance in the <a href="schedule.php" class="schedule-link">Schedule</a> section</span>
+<div class="enhanced-dashboard">
+    <!-- Welcome Header -->
+    <div class="dashboard-welcome">
+        <div class="welcome-content">
+            <div class="greeting-section">
+                <div class="time-indicator">
+                    <span class="time-icon">🌅</span>
+                    <span class="greeting-text">Good <?php echo date('H') < 12 ? 'Morning' : (date('H') < 18 ? 'Afternoon' : 'Evening'); ?></span>
+                </div>
+                <h1 class="user-name"><?php echo htmlspecialchars($current_user['full_name']); ?></h1>
+                <p class="role-badge">🎯 Live Seller</p>
             </div>
-        </div>
-        <div class="header-actions">
-            <a href="schedule.php" class="btn btn-secondary">
-                <span class="btn-icon">📅</span>
-                Schedule & Attendance
-            </a>
-            <button class="btn btn-primary" onclick="location.href='stream-new.php'">
-                <span class="btn-icon">📺</span>
-                Start New Stream
-            </button>
+            <div class="current-date">
+                <div class="date-display">
+                    <span class="day"><?php echo date('d'); ?></span>
+                    <div class="date-info">
+                        <span class="month"><?php echo date('M'); ?></span>
+                        <span class="year"><?php echo date('Y'); ?></span>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 
-    <!-- Stats Cards -->
+    <!-- Enhanced User Stats Cards -->
     <div class="stats-grid">
-        <div class="stat-card">
-            <div class="stat-icon">📺</div>
-            <div class="stat-content">
-                <h3><?php echo $total_streams; ?></h3>
-                <p>Total Streams</p>
-            </div>
-            <div class="stat-trend positive">+3</div>
-        </div>
-
-        <div class="stat-card">
-            <div class="stat-icon">🔴</div>
-            <div class="stat-content">
-                <h3><?php echo $active_streams; ?></h3>
-                <p>Live Now</p>
-            </div>
-            <div class="stat-trend <?php echo $active_streams > 0 ? 'positive' : 'neutral'; ?>">
-                <?php echo $active_streams > 0 ? 'LIVE' : 'OFF'; ?>
-            </div>
-        </div>
-
-        <div class="stat-card">
-            <div class="stat-icon">👥</div>
-            <div class="stat-content">
-                <h3>2.4K</h3>
-                <p>Total Viewers</p>
-            </div>
-            <div class="stat-trend positive">+18%</div>
-        </div>
-
-        <div class="stat-card">
-            <div class="stat-icon">💰</div>
-            <div class="stat-content">
-                <h3>$1,250</h3>
-                <p>This Month</p>
-            </div>
-            <div class="stat-trend positive">+22%</div>
-        </div>
-    </div>
-
-    <?php if (isset($success_message)): ?>
-        <div class="alert alert-success">
-            <?php echo htmlspecialchars($success_message); ?>
-        </div>
-    <?php endif; ?>
-
-    <?php if (isset($error_message)): ?>
-        <div class="alert alert-error">
-            <?php echo htmlspecialchars($error_message); ?>
-        </div>
-    <?php endif; ?>
-
-    <!-- Main Content Grid -->
-    <div class="dashboard-grid">
-        <!-- Recent Streams -->
-        <div class="dashboard-card">
-            <div class="card-header">
-                <h3>Recent Streams</h3>
-                <a href="streams.php" class="view-all-link">View All</a>
+        <div class="stat-card working-days">
+            <div class="card-background">
+                <div class="bg-pattern"></div>
             </div>
             <div class="card-content">
-                <?php if (empty($recent_streams)): ?>
-                    <div class="empty-state">
-                        <div class="empty-icon">📺</div>
-                        <p>No streams yet</p>
-                        <a href="stream-new.php" class="btn btn-primary">Create Your First Stream</a>
+                <div class="stat-header">
+                    <div class="stat-icon-wrapper">
+                        <span class="stat-icon">📅</span>
                     </div>
-                <?php else: ?>
-                    <div class="streams-list">
-                        <?php foreach ($recent_streams as $stream): ?>
-                            <div class="stream-item">
-                                <div class="stream-status <?php echo $stream['status']; ?>">
-                                    <?php
-                                    $status_icons = [
-                                        'live' => '🔴',
-                                        'scheduled' => '⏰',
-                                        'ended' => '✅',
-                                        'cancelled' => '❌'
-                                    ];
-                                    echo $status_icons[$stream['status']] ?? '📺';
-                                    ?>
+                    <div class="stat-trend">
+                        <span class="trend-indicator positive">↗</span>
+                    </div>
+                </div>
+                <div class="stat-body">
+                    <h3 class="stat-title">Working Days</h3>
+                    <div class="stat-value-container">
+                        <span class="stat-value"><?php echo number_format($user_working_days); ?></span>
+                        <span class="stat-unit">days</span>
+                    </div>
+                    <p class="stat-description">Total attendance recorded</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="stat-card working-hours">
+            <div class="card-background">
+                <div class="bg-pattern"></div>
+            </div>
+            <div class="card-content">
+                <div class="stat-header">
+                    <div class="stat-icon-wrapper">
+                        <span class="stat-icon">⏰</span>
+                    </div>
+                    <div class="stat-trend">
+                        <span class="trend-indicator positive">↗</span>
+                    </div>
+                </div>
+                <div class="stat-body">
+                    <h3 class="stat-title">Working Hours</h3>
+                    <div class="stat-value-container">
+                        <span class="stat-value"><?php echo number_format($user_working_hours, 1); ?></span>
+                        <span class="stat-unit">hrs</span>
+                    </div>
+                    <p class="stat-description">Total time commitment</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="stat-card current-rank">
+            <div class="card-background">
+                <div class="bg-pattern"></div>
+            </div>
+            <div class="card-content">
+                <div class="stat-header">
+                    <div class="stat-icon-wrapper">
+                        <span class="stat-icon">🏆</span>
+                    </div>
+                    <div class="rank-badge rank-<?php echo $current_user_rank <= 3 ? 'top' : 'standard'; ?>">
+                        <?php if ($current_user_rank <= 3): ?>
+                            <span class="crown">👑</span>
+                        <?php endif; ?>
+                    </div>
+                </div>
+                <div class="stat-body">
+                    <h3 class="stat-title">Current Rank</h3>
+                    <div class="stat-value-container">
+                        <span class="stat-value">#<?php echo $current_user_rank; ?></span>
+                        <span class="stat-unit">of <?php echo count($all_users_rankings); ?></span>
+                    </div>
+                    <p class="stat-description"><?php echo $current_user_rank <= 3 ? 'Top performer!' : 'Keep pushing!'; ?></p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Enhanced Live Sellers Ranking -->
+    <div class="ranking-section">
+        <div class="section-header">
+            <div class="header-content">
+                <h2 class="section-title">
+                    <span class="title-icon">🏆</span>
+                    Live Sellers Leaderboard
+                </h2>
+                <p class="section-subtitle">Performance rankings based on working hours and dedication</p>
+            </div>
+            <div class="header-stats">
+                <div class="total-sellers">
+                    <span class="count"><?php echo count($all_users_rankings); ?></span>
+                    <span class="label">Active Sellers</span>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Enhanced Top 3 Podium -->
+        <div class="podium-container">
+            <div class="podium-background">
+                <div class="bg-sparkle"></div>
+                <div class="bg-rays"></div>
+            </div>
+            
+            <div class="podium-positions">
+                <?php if (count($all_users_rankings) >= 2): ?>
+                    <!-- Rank 2 -->
+                    <div class="podium-position rank-2 animate-rise" style="animation-delay: 0.3s">
+                        <div class="position-platform">
+                            <div class="platform-height silver-platform"></div>
+                            <div class="platform-base">2</div>
+                        </div>
+                        <div class="contestant-info">
+                            <div class="profile-circle silver-circle">
+                                <div class="circle-glow silver-glow"></div>
+                                <div class="avatar-content">
+                                    <span class="avatar-initial"><?php echo strtoupper(substr($all_users_rankings[1]['full_name'], 0, 1)); ?></span>
                                 </div>
-                                <div class="stream-content">
-                                    <h4><?php echo htmlspecialchars($stream['title']); ?></h4>
-                                    <p class="stream-description"><?php echo htmlspecialchars($stream['description'] ?? 'No description'); ?></p>
-                                    <div class="stream-meta">
-                                        <span class="status-badge status-<?php echo $stream['status']; ?>">
-                                            <?php echo ucfirst($stream['status']); ?>
-                                        </span>
-                                        <span class="stream-date">
-                                            <?php echo date('M j, Y g:i A', strtotime($stream['created_at'])); ?>
-                                        </span>
-                                    </div>
-                                </div>
-                                <div class="stream-actions">
-                                    <?php if ($stream['status'] === 'live'): ?>
-                                        <a href="stream-manage.php?id=<?php echo $stream['id']; ?>" class="action-btn live">
-                                            Manage
-                                        </a>
-                                    <?php elseif ($stream['status'] === 'scheduled'): ?>
-                                        <a href="stream-edit.php?id=<?php echo $stream['id']; ?>" class="action-btn edit">
-                                            Edit
-                                        </a>
-                                    <?php else: ?>
-                                        <a href="stream-view.php?id=<?php echo $stream['id']; ?>" class="action-btn view">
-                                            View
-                                        </a>
-                                    <?php endif; ?>
+                                <div class="medal-overlay silver-medal">🥈</div>
+                            </div>
+                            <div class="contestant-details">
+                                <h4 class="contestant-name"><?php echo htmlspecialchars($all_users_rankings[1]['full_name']); ?></h4>
+                                <div class="performance-stats">
+                                    <span class="hours"><?php echo number_format($all_users_rankings[1]['working_hours'], 1); ?>h</span>
+                                    <span class="days"><?php echo number_format($all_users_rankings[1]['working_days']); ?> days</span>
                                 </div>
                             </div>
-                        <?php endforeach; ?>
+                        </div>
+                    </div>
+                <?php endif; ?>
+                
+                <?php if (count($all_users_rankings) >= 1): ?>
+                    <!-- Rank 1 -->
+                    <div class="podium-position rank-1 animate-rise" style="animation-delay: 0.1s">
+                        <div class="champion-crown">
+                            <span class="crown-icon">👑</span>
+                            <div class="crown-sparkle"></div>
+                        </div>
+                        <div class="position-platform">
+                            <div class="platform-height gold-platform"></div>
+                            <div class="platform-base champion">1</div>
+                        </div>
+                        <div class="contestant-info">
+                            <div class="profile-circle gold-circle">
+                                <div class="circle-glow gold-glow"></div>
+                                <div class="avatar-content">
+                                    <span class="avatar-initial"><?php echo strtoupper(substr($all_users_rankings[0]['full_name'], 0, 1)); ?></span>
+                                </div>
+                                <div class="medal-overlay gold-medal">🥇</div>
+                            </div>
+                            <div class="contestant-details">
+                                <h4 class="contestant-name champion-name"><?php echo htmlspecialchars($all_users_rankings[0]['full_name']); ?></h4>
+                                <div class="performance-stats">
+                                    <span class="hours"><?php echo number_format($all_users_rankings[0]['working_hours'], 1); ?>h</span>
+                                    <span class="days"><?php echo number_format($all_users_rankings[0]['working_days']); ?> days</span>
+                                </div>
+                                <div class="champion-badge">🎯 Champion</div>
+                            </div>
+                        </div>
+                    </div>
+                <?php endif; ?>
+                
+                <?php if (count($all_users_rankings) >= 3): ?>
+                    <!-- Rank 3 -->
+                    <div class="podium-position rank-3 animate-rise" style="animation-delay: 0.5s">
+                        <div class="position-platform">
+                            <div class="platform-height bronze-platform"></div>
+                            <div class="platform-base">3</div>
+                        </div>
+                        <div class="contestant-info">
+                            <div class="profile-circle bronze-circle">
+                                <div class="circle-glow bronze-glow"></div>
+                                <div class="avatar-content">
+                                    <span class="avatar-initial"><?php echo strtoupper(substr($all_users_rankings[2]['full_name'], 0, 1)); ?></span>
+                                </div>
+                                <div class="medal-overlay bronze-medal">🥉</div>
+                            </div>
+                            <div class="contestant-details">
+                                <h4 class="contestant-name"><?php echo htmlspecialchars($all_users_rankings[2]['full_name']); ?></h4>
+                                <div class="performance-stats">
+                                    <span class="hours"><?php echo number_format($all_users_rankings[2]['working_hours'], 1); ?>h</span>
+                                    <span class="days"><?php echo number_format($all_users_rankings[2]['working_days']); ?> days</span>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 <?php endif; ?>
             </div>
         </div>
-
-        <!-- Quick Actions & Performance -->
-        <div class="sidebar-cards">
-            <!-- Quick Actions -->
-            <div class="dashboard-card">
-                <div class="card-header">
-                    <h3>Quick Actions</h3>
-                </div>
-                <div class="card-content">
-                    <div class="quick-actions">
-                        <a href="stream-new.php" class="quick-action">
-                            <div class="action-icon">📺</div>
-                            <div class="action-content">
-                                <h4>New Stream</h4>
-                                <p>Start streaming now</p>
-                            </div>
-                        </a>
-
-                        <a href="schedule.php" class="quick-action">
-                            <div class="action-icon">📅</div>
-                            <div class="action-content">
-                                <h4>Schedule Stream</h4>
-                                <p>Plan for later</p>
-                            </div>
-                        </a>
-
-                        <a href="analytics.php" class="quick-action">
-                            <div class="action-icon">📊</div>
-                            <div class="action-content">
-                                <h4>View Analytics</h4>
-                                <p>Track performance</p>
-                            </div>
-                        </a>
-
-                        <a href="profile.php" class="quick-action">
-                            <div class="action-icon">👤</div>
-                            <div class="action-content">
-                                <h4>Update Profile</h4>
-                                <p>Manage your info</p>
-                            </div>
-                        </a>
+        
+        <!-- Enhanced Remaining Rankings -->
+        <?php if (count($all_users_rankings) > 3): ?>
+            <div class="extended-rankings">
+                <div class="rankings-header">
+                    <h3 class="rankings-title">
+                        <span class="title-icon">📊</span>
+                        Complete Leaderboard
+                    </h3>
+                    <div class="rankings-count">
+                        <span class="count"><?php echo count($all_users_rankings) - 3; ?></span>
+                        <span class="label">more sellers</span>
                     </div>
                 </div>
-            </div>
-
-            <!-- Performance Overview -->
-            <div class="dashboard-card">
-                <div class="card-header">
-                    <h3>This Week</h3>
+                
+                <div class="rankings-list">
+                    <?php for ($i = 3; $i < count($all_users_rankings); $i++): ?>
+                        <?php $user = $all_users_rankings[$i]; ?>
+                        <?php $isCurrentUser = $user['id'] == $current_user['id']; ?>
+                        <div class="ranking-row <?php echo $isCurrentUser ? 'current-user-row' : ''; ?> animate-slide-in" style="animation-delay: <?php echo ($i - 3) * 0.05; ?>s">
+                            <?php if ($isCurrentUser): ?>
+                                <div class="user-highlight">
+                                    <span class="highlight-label">You</span>
+                                </div>
+                            <?php endif; ?>
+                            
+                            <div class="rank-position">
+                                <span class="rank-number"><?php echo $i + 1; ?></span>
+                                <?php if ($i + 1 <= 10): ?>
+                                    <span class="top-ten-badge">TOP 10</span>
+                                <?php endif; ?>
+                            </div>
+                            
+                            <div class="user-profile">
+                                <div class="user-avatar">
+                                    <div class="avatar-circle <?php echo $isCurrentUser ? 'current-user-avatar' : ''; ?>">
+                                        <span class="avatar-initial"><?php echo strtoupper(substr($user['full_name'], 0, 1)); ?></span>
+                                    </div>
+                                    <?php if ($isCurrentUser): ?>
+                                        <div class="user-indicator">⭐</div>
+                                    <?php endif; ?>
+                                </div>
+                                <div class="user-details">
+                                    <h4 class="user-name"><?php echo htmlspecialchars($user['full_name']); ?></h4>
+                                    <div class="user-metrics">
+                                        <div class="metric">
+                                            <span class="metric-icon">⏰</span>
+                                            <span class="metric-value"><?php echo number_format($user['working_hours'], 1); ?>h</span>
+                                        </div>
+                                        <div class="metric">
+                                            <span class="metric-icon">📅</span>
+                                            <span class="metric-value"><?php echo number_format($user['working_days']); ?> days</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="performance-indicator">
+                                <?php 
+                                $performance_percent = $user['working_hours'] > 0 ? 
+                                    min(100, ($user['working_hours'] / max(1, $all_users_rankings[0]['working_hours'])) * 100) : 0;
+                                ?>
+                                <div class="progress-ring">
+                                    <svg class="progress-svg" width="40" height="40">
+                                        <circle class="progress-circle-bg" cx="20" cy="20" r="15"></circle>
+                                        <circle class="progress-circle" cx="20" cy="20" r="15" 
+                                                style="stroke-dasharray: <?php echo $performance_percent * 0.94; ?> 100"></circle>
+                                    </svg>
+                                    <span class="progress-text"><?php echo round($performance_percent); ?>%</span>
+                                </div>
+                            </div>
+                        </div>
+                    <?php endfor; ?>
                 </div>
-                <div class="card-content">
-                    <div class="performance-stats">
-                        <div class="perf-item">
-                            <div class="perf-label">Streams</div>
-                            <div class="perf-value">8</div>
-                            <div class="perf-change positive">+2</div>
-                        </div>
-                        <div class="perf-item">
-                            <div class="perf-label">Avg Viewers</div>
-                            <div class="perf-value">156</div>
-                            <div class="perf-change positive">+12%</div>
-                        </div>
-                        <div class="perf-item">
-                            <div class="perf-label">Total Hours</div>
-                            <div class="perf-value">24.5</div>
-                            <div class="perf-change positive">+3.2</div>
-                        </div>
-                        <div class="perf-item">
-                            <div class="perf-label">Earnings</div>
-                            <div class="perf-value">$340</div>
-                            <div class="perf-change positive">+8%</div>
-                        </div>
-                    </div>
-                </div>
             </div>
-        </div>
+        <?php endif; ?>
     </div>
 </div>
-
-<script>
-// Auto-refresh attendance status every 30 seconds for any live sessions
-setInterval(function() {
-    // Check if there are any live indicators on the page
-    const liveIndicators = document.querySelectorAll('.live-indicator');
-    if (liveIndicators.length > 0) {
-        // Only refresh if there are active sessions to avoid unnecessary requests
-        location.reload();
-    }
-}, 30000);
-
-// Set minimum date to today for date inputs
-document.addEventListener('DOMContentLoaded', function() {
-    const dateInputs = document.querySelectorAll('input[type="date"]');
-    const today = new Date().toISOString().split('T')[0];
-    dateInputs.forEach(input => {
-        if (!input.value) {
-            input.value = today;
-        }
-        input.min = today;
-    });
-});
-</script>
 
 <?php include 'layout/footer.php'; ?>
