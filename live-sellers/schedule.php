@@ -12,8 +12,23 @@ $db = getDB();
 
 // Get today's date
 $today = date('Y-m-d');
-// Get the date to view (default to today, but allow viewing other dates)
 $view_date = $_GET['date'] ?? $today;
+
+// Check if user already has attendance for today
+$stmt = $db->prepare("
+    SELECT COUNT(*) as attendance_count 
+    FROM seller_attendance 
+    WHERE seller_id = ? AND attendance_date = ? AND status != 'cancelled'
+");
+$stmt->execute([$current_user['id'], $today]);
+$today_attendance_count = $stmt->fetchColumn();
+$has_attendance_today = $today_attendance_count > 0;
+
+// Check for successful submission
+$attendance_submitted = isset($_SESSION['attendance_submitted']) && $_SESSION['attendance_submitted'] === true;
+if ($attendance_submitted) {
+    unset($_SESSION['attendance_submitted']);
+}
 
 // Validate the view date
 if ($view_date < $today) {
@@ -98,7 +113,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             VALUES (?, ?, ?, 'scheduled')
                         ");
                         $stmt->execute([$current_user['id'], $attendance_date, $time_slot_id]);
-                        $success_message = "Time slot scheduled successfully!";
+                        
+                        // Set session flag for successful submission
+                        $_SESSION['attendance_submitted'] = true;
+                        
+                        // Redirect to prevent form resubmission
+                        header('Location: ' . $_SERVER['REQUEST_URI']);
+                        exit;
                     }
                 } else {
                     $error_message = "Invalid slot data provided.";
@@ -174,24 +195,6 @@ include 'layout/header.php';
 ?>
 
 <div class="schedule-container">
-    <!-- Schedule Header -->
-    <div class="schedule-header">
-        <div class="header-content">
-            <h1>📅 Schedule & Attendance Tracker</h1>
-            <p>Manage your time slots and track your attendance for live streaming sessions.</p>
-        </div>
-        <div class="header-stats">
-            <div class="stat-item">
-                <span class="stat-value"><?php echo count($view_date_attendance); ?></span>
-                <span class="stat-label"><?php echo $view_date === $today ? "Today's Slots" : "Selected Date"; ?></span>
-            </div>
-            <div class="stat-item">
-                <span class="stat-value"><?php echo count(array_filter($upcoming_schedule, function($a) { return $a['status'] === 'scheduled'; })); ?></span>
-                <span class="stat-label">Upcoming</span>
-            </div>
-        </div>
-    </div>
-
     <?php if (isset($success_message)): ?>
         <div class="alert alert-success">
             <?php echo htmlspecialchars($success_message); ?>
@@ -206,13 +209,67 @@ include 'layout/header.php';
 
     <!-- Simple Schedule Form Layout -->
     <div class="simple-schedule-container">
-        <div class="schedule-form-card">
+        <?php if ($attendance_submitted): ?>
+            <!-- Success Message with Dashboard Redirect -->
+            <div class="attendance-success-card">
+                <div class="success-icon">✅</div>
+                <h2>Attendance Submitted Successfully!</h2>
+                <p>Your attendance has been recorded for today. Thank you for your submission.</p>
+                <div class="success-actions">
+                    <a href="dashboard.php" class="btn btn-primary btn-large">
+                        <span class="btn-icon">🏠</span>
+                        Go to Dashboard
+                    </a>
+                </div>
+            </div>
+        <?php elseif ($has_attendance_today): ?>
+            <!-- Already Submitted Message -->
+            <div class="attendance-form-wrapper">
+                <div class="attendance-form-card already-submitted">
+                    <div class="form-body">
+                        <div class="attendance-status-display">
+                            <div class="status-icon-large">✅</div>
+                            <div class="status-content">
+                                <h3>Attendance Successfully Recorded</h3>
+                                <div class="status-summary">
+                                    <p class="main-message">Your daily attendance has been confirmed!</p>
+                                    <p class="date-info">Submitted on <span class="highlight-date"><?php echo date('F j, Y'); ?></span></p>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="next-submission-info">
+                            <div class="info-content-compact">
+                                <span class="info-icon">🕐</span>
+                                <div class="info-text">
+                                    <p class="next-date">Next submission available tomorrow, <strong><?php echo date('F j, Y', strtotime('+1 day')); ?></strong></p>
+                                    <p class="thank-you">Thank you for your participation!</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="form-footer">
+                        <div class="single-action">
+                            <a href="dashboard.php" class="btn btn-primary btn-dashboard">
+                                <span class="btn-icon">🏠</span>
+                                <span class="btn-text">Return to Dashboard</span>
+                                <span class="btn-arrow">→</span>
+                            </a>
+                            <p class="footer-note">Continue managing your schedule from the dashboard</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        <?php else: ?>
+            <!-- Schedule Form -->
+            <div class="schedule-form-card">
             <div class="form-header">
                 <h2>Schedule Your Time Slot</h2>
                 <p>Choose your preferred duration and time slot. We offer 3-hour and 4-hour shifts throughout the day.</p>
             </div>
             
-            <form method="POST" class="simple-schedule-form" enctype="multipart/form-data">
+                        <form method="POST" class="simple-schedule-form" enctype="multipart/form-data">
                 <input type="hidden" name="action" value="schedule_slot">
                 
                 <div class="form-row">
@@ -244,27 +301,32 @@ include 'layout/header.php';
                     <input type="number" id="solds" name="solds" placeholder="Enter total solds amount" min="0" step="1">
                 </div>
                 
-                <button type="submit" class="btn btn-primary btn-large">
+                <div class="form-group full-width">
+                    <label for="sold_photo">📱 Total Sold Photo:</label>
+                    <div class="photo-upload-container">
+                        <input type="file" id="sold_photo" name="sold_photo" accept="image/*" class="file-input">
+                        <div class="upload-placeholder" onclick="document.getElementById('sold_photo').click()">
+                            <span class="upload-icon">📷</span>
+                            <p>Upload your total sold photo</p>
+                            <span class="btn btn-outline">Choose Photo</span>
+                        </div>
+                        <div id="photo-preview" class="photo-preview" style="display: none;">
+                            <img id="preview-image" src="" alt="Preview">
+                            <button type="button" class="remove-photo" onclick="removePhoto()">×</button>
+                        </div>
+                    </div>
+                </div>
+                
+                <button type="submit" class="btn btn-primary btn-large" style="text-align: center; display: flex; align-items: center; justify-content: center;">
+                    <span class="btn-icon">⏰</span>
                     Submit
                 </button>
                 
                 <input type="hidden" id="custom_slot_data" name="custom_slot_data" value="">
             </form>
         </div>
-        
-        <!-- Attendance Card Photo Section -->
-        <div class="attendance-card-section">
-            <h3>� Attendance Card Photo</h3>
-            <div class="photo-upload-area">
-                <div class="upload-placeholder">
-                    <span class="upload-icon">�</span>
-                    <p>Upload your attendance card photo</p>
-                    <button type="button" class="btn btn-outline">Choose Photo</button>
-                </div>
-            </div>
-        </div>
+        <?php endif; ?>
     </div>
-</div>
 
 <script>
 // Define time slot data
