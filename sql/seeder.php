@@ -24,7 +24,7 @@ $default_time_slots = [
 $default_users = [
     [
         'username' => 'admin',
-        'email' => 'admin@tiktok-live-host.com',
+        'email' => 'admin@gmail.com',
         'password' => 'admin123', // Plain text password
         'role' => 'admin',
         'full_name' => 'System Administrator',
@@ -32,7 +32,7 @@ $default_users = [
     ],
     [
         'username' => 'seller1',
-        'email' => 'seller1@tiktok-live-host.com',
+        'email' => 'seller1@gmail.com',
         'password' => 'seller123', // Plain text password
         'role' => 'live_seller',
         'full_name' => 'Jane Doe',
@@ -40,8 +40,8 @@ $default_users = [
     ],
     [
         'username' => 'seller2',
-        'email' => 'seller2@tiktok-live-host.com',
-        'password' => 'seller456', // Plain text password
+        'email' => 'seller2@gmail.com',
+        'password' => 'seller123', // Plain text password
         'role' => 'live_seller',
         'full_name' => 'John Smith',
         'status' => 'active'
