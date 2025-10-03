@@ -1,209 +1,247 @@
 <?php
-session_start();
-require_once '../config/config.php';
-require_once '../includes/database.php';
-require_once '../includes/functions.php';
+$page_title = "Create Users";
+require_once __DIR__ . '/../config/config.php';
+require_once __DIR__ . '/../includes/functions.php';
 
-// Check if user is logged in and is admin
-if (!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'admin') {
-    header('Location: ../unauthorized.php');
-    exit();
-}
+// Require admin role
+require_role('admin');
+
+$message = '';
+$error = '';
 
 // Handle form submission
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $username = trim($_POST['username']);
-    $full_name = trim($_POST['full_name']);
-    $email = trim($_POST['email']);
-    $password = $_POST['password'];
-    $status = $_POST['status'];
+if ($_POST) {
+    $csrf_token = $_POST['csrf_token'] ?? '';
     
-    // Validation
-    $errors = [];
-    
-    if (empty($username)) {
-        $errors[] = "Username is required";
-    }
-    
-    if (empty($full_name)) {
-        $errors[] = "Full name is required";
-    }
-    
-    if (empty($email) || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
-        $errors[] = "Valid email is required";
-    }
-    
-    if (empty($password) || strlen($password) < 6) {
-        $errors[] = "Password must be at least 6 characters long";
-    }
-    
-    if (empty($status)) {
-        $errors[] = "Status is required";
-    }
-    
-    // Check if username already exists
-    if (empty($errors)) {
-        $stmt = $pdo->prepare("SELECT id FROM users WHERE username = ?");
-        $stmt->execute([$username]);
-        if ($stmt->rowCount() > 0) {
-            $errors[] = "Username already exists";
-        }
-    }
-    
-    // Check if email already exists
-    if (empty($errors)) {
-        $stmt = $pdo->prepare("SELECT id FROM users WHERE email = ?");
-        $stmt->execute([$email]);
-        if ($stmt->rowCount() > 0) {
-            $errors[] = "Email already exists";
-        }
-    }
-    
-    // Create user if no errors
-    if (empty($errors)) {
-        $hashed_password = password_hash($password, PASSWORD_DEFAULT);
-        $stmt = $pdo->prepare("INSERT INTO users (username, full_name, email, password, role, status, created_at) VALUES (?, ?, ?, ?, 'live_seller', ?, NOW())");
+    if (!verify_csrf_token($csrf_token)) {
+        $error = 'Invalid CSRF token. Please try again.';
+    } else {
+        $full_name = sanitize_input($_POST['full_name'] ?? '');
+        $username = sanitize_input($_POST['username'] ?? '');
+        $email = sanitize_input($_POST['email'] ?? '');
+        $password = $_POST['password'] ?? '';
+        $experience_status = sanitize_input($_POST['experience_status'] ?? '');
         
-        if ($stmt->execute([$username, $full_name, $email, $hashed_password, $status])) {
-            $success_message = "User created successfully!";
+        // Validation
+        if (empty($full_name) || empty($username) || empty($email) || empty($password) || empty($experience_status)) {
+            $error = 'All fields are required.';
+        } elseif (!validate_email($email)) {
+            $error = 'Please enter a valid email address.';
+        } elseif (strlen($password) < 6) {
+            $error = 'Password must be at least 6 characters long.';
         } else {
-            $errors[] = "Error creating user. Please try again.";
+            $db = getDB();
+            
+            // Check if username or email already exists
+            $stmt = $db->prepare("SELECT id FROM users WHERE username = ? OR email = ?");
+            $stmt->execute([$username, $email]);
+            if ($stmt->fetch()) {
+                $error = 'Username or email already exists.';
+            } else {
+                // Handle profile image upload
+                $profile_image = null;
+                if (isset($_FILES['profile_image']) && $_FILES['profile_image']['error'] === UPLOAD_ERR_OK) {
+                    $upload_dir = __DIR__ . '/../uploads/profiles/';
+                    if (!file_exists($upload_dir)) {
+                        mkdir($upload_dir, 0755, true);
+                    }
+                    
+                    $file_extension = pathinfo($_FILES['profile_image']['name'], PATHINFO_EXTENSION);
+                    $allowed_extensions = ['jpg', 'jpeg', 'png', 'gif'];
+                    
+                    if (in_array(strtolower($file_extension), $allowed_extensions)) {
+                        $new_filename = uniqid() . '_' . time() . '.' . $file_extension;
+                        $upload_path = $upload_dir . $new_filename;
+                        
+                        if (move_uploaded_file($_FILES['profile_image']['tmp_name'], $upload_path)) {
+                            $profile_image = 'uploads/profiles/' . $new_filename;
+                        } else {
+                            $error = 'Failed to upload profile image.';
+                        }
+                    } else {
+                        $error = 'Invalid file type. Only JPG, JPEG, PNG, and GIF files are allowed.';
+                    }
+                }
+                
+                if (empty($error)) {
+                    // Insert new user
+                    $hashed_password = password_hash($password, PASSWORD_DEFAULT);
+                    $stmt = $db->prepare("
+                        INSERT INTO users (username, email, password, role, full_name, profile_image, experience_status, status) 
+                        VALUES (?, ?, ?, 'live_seller', ?, ?, ?, 'active')
+                    ");
+                    
+                    if ($stmt->execute([$username, $email, $hashed_password, $full_name, $profile_image, $experience_status])) {
+                        $new_user_id = $db->lastInsertId();
+                        log_activity($_SESSION['user_id'], 'create_user', "Created new user: $username");
+                        $message = 'User created successfully!';
+                        
+                        // Clear form data
+                        $full_name = $username = $email = $experience_status = '';
+                    } else {
+                        $error = 'Failed to create user. Please try again.';
+                    }
+                }
+            }
         }
     }
 }
+
+include __DIR__ . '/layout/header.php';
 ?>
 
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Create Users - Admin Panel</title>
-    <link rel="stylesheet" href="../assets/css/admin.css">
-</head>
-<body>
-    <?php include 'layout/header.php'; ?>
-    
-    <div class="admin-container">
-        <aside class="sidebar">
-            <div class="sidebar-header">
-                <div class="logo">
-                    <span class="logo-icon">🎯</span>
-                    <span class="logo-text">Admin Panel</span>
-                </div>
-            </div>
-            <nav class="sidebar-nav">
-                <ul>
-                    <li><a href="dashboard.php"><span class="nav-icon">🏠</span> Dashboard</a></li>
-                    <li class="active"><a href="create_users.php"><span class="nav-icon">👥</span> Create Users</a></li>
-                    <li><a href="user-management.php"><span class="nav-icon">⚙️</span> User Management</a></li>
-                    <li><a href="#"><span class="nav-icon">📊</span> Reports</a></li>
-                    <li><a href="#"><span class="nav-icon">📋</span> Activity Logs</a></li>
-                    <li><a href="#"><span class="nav-icon">⚙️</span> Settings</a></li>
-                </ul>
-            </nav>
-            <div class="sidebar-footer">
-                <div class="user-info">
-                    <div class="user-avatar">S</div>
-                    <div class="user-details">
-                        <div class="user-name">System Administrator</div>
-                        <div class="user-role">Administrator</div>
-                    </div>
-                </div>
-            </div>
-        </aside>
-        
-        <main class="main-content">
-            <header class="content-header">
-                <h1>Create Users</h1>
-                <div class="user-menu">
-                    <span class="user-avatar">S</span>
-                    <span class="username">admin</span>
-                    <span class="dropdown-arrow">▼</span>
-                </div>
-            </header>
-            
-            <div class="content-body">
-                <div class="form-container">
-                    <div class="form-header">
-                        <h2>👥 Create New User</h2>
-                        <p>Add new users to your TikTok Live Host Agency.</p>
-                    </div>
-                    
-                    <?php if (!empty($errors)): ?>
-                        <div class="alert alert-error">
-                            <ul>
-                                <?php foreach ($errors as $error): ?>
-                                    <li><?php echo htmlspecialchars($error); ?></li>
-                                <?php endforeach; ?>
-                            </ul>
-                        </div>
-                    <?php endif; ?>
-                    
-                    <?php if (isset($success_message)): ?>
-                        <div class="alert alert-success">
-                            <?php echo htmlspecialchars($success_message); ?>
-                        </div>
-                    <?php endif; ?>
-                    
-                    <form method="POST" class="user-form">
-                        <div class="form-section">
-                            <h3>User Information</h3>
-                            
-                            <div class="form-row">
-                                <div class="form-group">
-                                    <label for="username">USER NAME</label>
-                                    <input type="text" id="username" name="username" placeholder="Enter username" 
-                                           value="<?php echo isset($_POST['username']) ? htmlspecialchars($_POST['username']) : ''; ?>" required>
-                                    <small class="form-help">Username must be unique and contain no spaces</small>
-                                </div>
-                                
-                                <div class="form-group">
-                                    <label for="full_name">FULL NAME</label>
-                                    <input type="text" id="full_name" name="full_name" placeholder="Enter full name"
-                                           value="<?php echo isset($_POST['full_name']) ? htmlspecialchars($_POST['full_name']) : ''; ?>" required>
-                                    <small class="form-help">Enter the user's complete name</small>
-                                </div>
-                            </div>
-                            
-                            <div class="form-row">
-                                <div class="form-group">
-                                    <label for="email">EMAIL</label>
-                                    <input type="email" id="email" name="email" placeholder="Enter email address"
-                                           value="<?php echo isset($_POST['email']) ? htmlspecialchars($_POST['email']) : ''; ?>" required>
-                                    <small class="form-help">Valid email address for login and notifications</small>
-                                </div>
-                                
-                                <div class="form-group">
-                                    <label for="password">PASSWORD</label>
-                                    <input type="password" id="password" name="password" placeholder="Enter password" required>
-                                    <small class="form-help">Password must be at least 6 characters long</small>
-                                </div>
-                            </div>
-                            
-                            <div class="form-row">
-                                <div class="form-group">
-                                    <label for="status">STATUS</label>
-                                    <select id="status" name="status" required>
-                                        <option value="">Select status</option>
-                                        <option value="newbie" <?php echo (isset($_POST['status']) && $_POST['status'] === 'newbie') ? 'selected' : ''; ?>>Newbie</option>
-                                        <option value="tenure" <?php echo (isset($_POST['status']) && $_POST['status'] === 'tenure') ? 'selected' : ''; ?>>Tenure</option>
-                                    </select>
-                                    <small class="form-help">Choose the user's experience level</small>
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <div class="form-actions">
-                            <button type="submit" class="btn btn-primary">Create User</button>
-                            <button type="reset" class="btn btn-secondary">🔄 Reset Form</button>
-                        </div>
-                    </form>
-                </div>
-            </div>
-        </main>
+<div class="create-user-container">
+    <div class="form-header">
+        <div class="header-icon">👥</div>
+        <div class="header-content">
+            <h1>Create New User</h1>
+            <p>Add new users to your TikTok Live Host Agency.</p>
+        </div>
     </div>
+
+    <?php if ($message): ?>
+        <div class="alert alert-success">
+            <span class="alert-icon">✓</span>
+            <?php echo htmlspecialchars($message); ?>
+        </div>
+    <?php endif; ?>
+
+    <?php if ($error): ?>
+        <div class="alert alert-error">
+            <span class="alert-icon">⚠</span>
+            <?php echo htmlspecialchars($error); ?>
+        </div>
+    <?php endif; ?>
+
+    <div class="user-form-card">
+        <div class="form-section-header">
+            <h3>User Information</h3>
+        </div>
+        
+        <form method="POST" enctype="multipart/form-data" class="compact-user-form">
+            <input type="hidden" name="csrf_token" value="<?php echo generate_csrf_token(); ?>">
+            
+            <div class="form-grid">
+                <div class="form-field">
+                    <label for="username">USER NAME</label>
+                    <input type="text" id="username" name="username" 
+                           placeholder="Enter username" 
+                           value="<?php echo htmlspecialchars($username ?? ''); ?>" required>
+                    <small class="field-hint">Username must be unique and contain no spaces</small>
+                </div>
+                
+                <div class="form-field">
+                    <label for="full_name">FULL NAME</label>
+                    <input type="text" id="full_name" name="full_name" 
+                           placeholder="Enter full name" 
+                           value="<?php echo htmlspecialchars($full_name ?? ''); ?>" required>
+                    <small class="field-hint">Enter the user's complete name</small>
+                </div>
+                
+                <div class="form-field">
+                    <label for="email">EMAIL</label>
+                    <input type="email" id="email" name="email" 
+                           placeholder="Enter email address" 
+                           value="<?php echo htmlspecialchars($email ?? ''); ?>" required>
+                    <small class="field-hint">Valid email address for login and notifications</small>
+                </div>
+                
+                <div class="form-field">
+                    <label for="password">PASSWORD</label>
+                    <input type="password" id="password" name="password" 
+                           placeholder="Enter password" minlength="6" required>
+                    <small class="field-hint">Password must be at least 6 characters long</small>
+                </div>
+                
+                <div class="form-field">
+                    <label for="experience_status">STATUS</label>
+                    <select id="experience_status" name="experience_status" required>
+                        <option value="">Select status</option>
+                        <option value="newbie" <?php echo (($experience_status ?? '') === 'newbie') ? 'selected' : ''; ?>>Newbie</option>
+                        <option value="tenured" <?php echo (($experience_status ?? '') === 'tenured') ? 'selected' : ''; ?>>Tenured</option>
+                    </select>
+                    <small class="field-hint">Choose the user's experience level</small>
+                </div>
+                
+                <div class="form-field file-field">
+                    <label for="profile_image">PROFILE IMAGE</label>
+                    <div class="file-upload-area">
+                        <input type="file" id="profile_image" name="profile_image" 
+                               accept="image/jpeg,image/jpg,image/png,image/gif">
+                        <div class="file-upload-content">
+                            <span class="upload-icon">📷</span>
+                            <span class="upload-text">Choose image file</span>
+                        </div>
+                    </div>
+                    <small class="field-hint">Upload a profile picture (JPG, PNG, GIF)</small>
+                </div>
+            </div>
+
+            <div class="form-actions">
+                <button type="submit" class="btn-create">
+                    <span class="btn-icon">👤</span>
+                    Create User
+                </button>
+                <button type="reset" class="btn-reset">
+                    <span class="btn-icon">🔄</span>
+                    Reset Form
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+// File upload preview functionality
+document.getElementById('profile_image').addEventListener('change', function(e) {
+    const file = e.target.files[0];
+    const uploadArea = this.closest('.file-upload-area');
+    const uploadText = uploadArea.querySelector('.upload-text');
     
-    <script src="../assets/js/admin.js"></script>
-</body>
-</html>
+    if (file) {
+        uploadText.textContent = file.name;
+        uploadArea.classList.add('has-file');
+    } else {
+        uploadText.textContent = 'Choose image file';
+        uploadArea.classList.remove('has-file');
+    }
+});
+
+// Form reset handler
+document.querySelector('.btn-reset').addEventListener('click', function(e) {
+    e.preventDefault();
+    
+    // Reset form
+    document.querySelector('.compact-user-form').reset();
+    
+    // Reset file upload area
+    const uploadArea = document.querySelector('.file-upload-area');
+    const uploadText = uploadArea.querySelector('.upload-text');
+    uploadText.textContent = 'Choose image file';
+    uploadArea.classList.remove('has-file');
+});
+
+// Form validation enhancement
+document.querySelector('.compact-user-form').addEventListener('submit', function(e) {
+    const username = document.getElementById('username').value.trim();
+    const password = document.getElementById('password').value;
+    
+    // Check for spaces in username
+    if (username.includes(' ')) {
+        e.preventDefault();
+        alert('Username cannot contain spaces');
+        document.getElementById('username').focus();
+        return;
+    }
+    
+    // Check password length
+    if (password.length < 6) {
+        e.preventDefault();
+        alert('Password must be at least 6 characters long');
+        document.getElementById('password').focus();
+        return;
+    }
+});
+</script>
+
+<?php include __DIR__ . '/layout/footer.php'; ?>
