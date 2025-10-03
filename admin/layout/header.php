@@ -36,15 +36,15 @@ $current_user = get_logged_in_user();
                 
                 <li class="nav-item">
                     <a href="users.php" class="nav-link <?php echo basename($_SERVER['PHP_SELF']) === 'users.php' ? 'active' : ''; ?>">
-                        <span class="nav-icon">�</span>
+                        <span class="nav-icon">👥</span>
                         <span class="nav-text">Create Users</span>
                     </a>
                 </li>
                 
                 <li class="nav-item">
-                    <a href="user-management.php" class="nav-link <?php echo basename($_SERVER['PHP_SELF']) === 'user-management.php' ? 'active' : ''; ?>">
-                        <span class="nav-icon">�</span>
-                        <span class="nav-text">User Management</span>
+                    <a href="streams.php" class="nav-link <?php echo basename($_SERVER['PHP_SELF']) === 'streams.php' ? 'active' : ''; ?>">
+                        <span class="nav-icon">📺</span>
+                        <span class="nav-text">Live Streams</span>
                     </a>
                 </li>
                 
