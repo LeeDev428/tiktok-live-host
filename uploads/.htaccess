@@ -1,0 +1,11 @@
+# Prevent direct PHP execution in uploads directory
+<Files "*.php">
+    Order Allow,Deny
+    Deny from all
+</Files>
+
+# Allow common image formats
+<FilesMatch "\.(jpg|jpeg|png|gif)$">
+    Order Allow,Deny
+    Allow from all
+</FilesMatch>
