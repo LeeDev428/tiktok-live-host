@@ -1,9 +1,13 @@
 <?php
 require_once __DIR__ . '/database.php';
 
-// Start session if not already started
+// Comprehensive session management
 if (session_status() === PHP_SESSION_NONE) {
-    session_start();
+    @session_start();
+} elseif (session_status() === PHP_SESSION_DISABLED) {
+    // Sessions are disabled, enable them
+    ini_set('session.auto_start', 0);
+    @session_start();
 }
 
 function sanitize_input($data) {
@@ -98,8 +102,12 @@ function logout_user() {
     }
     
     session_destroy();
-    session_start();
-    session_regenerate_id(true);
+    
+    // Only start new session if none exists
+    if (session_status() == PHP_SESSION_NONE) {
+        session_start();
+        session_regenerate_id(true);
+    }
 }
 
 function get_user_dashboard_url($role) {
