@@ -14,6 +14,7 @@ CREATE TABLE `users` (
     `role` enum('admin', 'live_seller') NOT NULL DEFAULT 'live_seller',
     `full_name` varchar(100) NOT NULL,
     `profile_image` varchar(255) DEFAULT NULL,
+    `experience_status` enum('newbie', 'tenured') DEFAULT 'newbie',
     `status` enum('active', 'inactive', 'suspended') NOT NULL DEFAULT 'active',
     `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -21,7 +22,8 @@ CREATE TABLE `users` (
     KEY `idx_username` (`username`),
     KEY `idx_email` (`email`),
     KEY `idx_role` (`role`),
-    KEY `idx_status` (`status`)
+    KEY `idx_status` (`status`),
+    KEY `idx_experience_status` (`experience_status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- User sessions table for security
@@ -184,10 +186,10 @@ INSERT INTO `users` (`username`, `email`, `password`, `role`, `full_name`, `stat
 ('admin', 'admin@tiktok-live-host.com', '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'admin', 'System Administrator', 'active');
 
 -- Insert sample live sellers (password: seller123)
-INSERT INTO `users` (`username`, `email`, `password`, `role`, `full_name`, `status`) VALUES
-('seller1', 'seller1@tiktok-live-host.com', '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'live_seller', 'Jane Doe', 'active'),
-('seller2', 'seller2@tiktok-live-host.com', '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'live_seller', 'John Smith', 'active'),
-('demo_seller', 'demo@tiktok-live-host.com', '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'live_seller', 'Demo Seller', 'active');
+INSERT INTO `users` (`username`, `email`, `password`, `role`, `full_name`, `experience_status`, `status`) VALUES
+('seller1', 'seller1@tiktok-live-host.com', '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'live_seller', 'Jane Doe', 'tenured', 'active'),
+('seller2', 'seller2@tiktok-live-host.com', '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'live_seller', 'John Smith', 'newbie', 'active'),
+('demo_seller', 'demo@tiktok-live-host.com', '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'live_seller', 'Demo Seller', 'newbie', 'active');
 
 -- Insert default attendance time slots
 INSERT INTO `attendance_time_slots` (`name`, `duration_hours`, `start_time`, `end_time`, `is_active`) VALUES
