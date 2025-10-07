@@ -4,46 +4,79 @@ require_once __DIR__ . '/../includes/functions.php';
 // Require live_seller role
 require_role('live_seller');
 
-// Get current user info
-$current_user = get_logged_in_user();
+// Helper function to get correct profile image path
+function get_profile_image_path($profile_image) {
+    if (empty($profile_image)) {
+        return '';
+    }
+    // If it already contains 'uploads/profiles/', just prepend ../
+    if (strpos($profile_image, 'uploads/profiles/') === 0) {
+        return '../' . $profile_image;
+    }
+    // Otherwise, it's just the filename, so add the full path
+    return '../uploads/profiles/' . $profile_image;
+}
 
-// Get seller dashboard stats
+// Get current user info with experienced_status
 $db = getDB();
+$stmt = $db->prepare("SELECT * FROM users WHERE id = ?");
+$stmt->execute([$_SESSION['user_id']]);
+$current_user = $stmt->fetch();
 
-// Get user's total working days (count of attendance records)
+// Get current pay period
+$current_period = get_current_pay_period();
+$days_until_reset = get_days_until_reset();
+
+// Get seller dashboard stats for current pay period
+
+// Get user's total working days
 $stmt = $db->prepare("
-    SELECT COUNT(DISTINCT DATE(attendance_date)) as total_working_days 
-    FROM seller_attendance 
-    WHERE seller_id = ? AND status = 'completed'
+    SELECT COUNT(DISTINCT attendance_date) as total_working_days 
+    FROM attendance 
+    WHERE seller_id = ? AND status IN ('completed', 'checked_in')
+        AND attendance_date BETWEEN ? AND ?
 ");
-$stmt->execute([$current_user['id']]);
-$user_working_days = $stmt->fetch()['total_working_days'];
+$stmt->execute([$current_user['id'], $current_period['start_date'], $current_period['end_date']]);
+$user_working_days = $stmt->fetch()['total_working_days'] ?? 0;
 
 // Get user's total working hours
 $stmt = $db->prepare("
-    SELECT COALESCE(SUM(ats.duration_hours), 0) as total_working_hours
-    FROM seller_attendance sa
-    JOIN attendance_time_slots ats ON sa.time_slot_id = ats.id
-    WHERE sa.seller_id = ? AND sa.status = 'completed'
+    SELECT COALESCE(SUM(hours_worked), 0) as total_working_hours
+    FROM attendance
+    WHERE seller_id = ? AND status IN ('completed', 'checked_in')
+        AND attendance_date BETWEEN ? AND ?
 ");
-$stmt->execute([$current_user['id']]);
-$user_working_hours = $stmt->fetch()['total_working_hours'];
+$stmt->execute([$current_user['id'], $current_period['start_date'], $current_period['end_date']]);
+$user_working_hours = $stmt->fetch()['total_working_hours'] ?? 0;
 
-// Get all users with their stats for ranking
+// Get user's total sales
+$stmt = $db->prepare("
+    SELECT COALESCE(SUM(solds_quantity), 0) as total_sales
+    FROM attendance
+    WHERE seller_id = ? AND status IN ('completed', 'checked_in')
+        AND attendance_date BETWEEN ? AND ?
+");
+$stmt->execute([$current_user['id'], $current_period['start_date'], $current_period['end_date']]);
+$user_total_sales = $stmt->fetch()['total_sales'] ?? 0;
+
+// Get all users with their stats for ranking (based on total sales) for current pay period
 $stmt = $db->prepare("
     SELECT 
         u.id,
         u.full_name,
-        COUNT(DISTINCT DATE(sa.attendance_date)) as working_days,
-        COALESCE(SUM(ats.duration_hours), 0) as working_hours
+        u.profile_image,
+        COUNT(DISTINCT a.attendance_date) as working_days,
+        COALESCE(SUM(a.hours_worked), 0) as working_hours,
+        COALESCE(SUM(a.solds_quantity), 0) as total_sales
     FROM users u
-    LEFT JOIN seller_attendance sa ON u.id = sa.seller_id AND sa.status = 'completed'
-    LEFT JOIN attendance_time_slots ats ON sa.time_slot_id = ats.id
-    WHERE u.role = 'live_seller'
+    LEFT JOIN attendance a ON u.id = a.seller_id 
+        AND a.status IN ('completed', 'checked_in')
+        AND a.attendance_date BETWEEN ? AND ?
+    WHERE u.role = 'live_seller' AND u.status = 'active'
     GROUP BY u.id, u.full_name
-    ORDER BY working_hours DESC, working_days DESC
+    ORDER BY total_sales DESC, working_hours DESC, working_days DESC
 ");
-$stmt->execute();
+$stmt->execute([$current_period['start_date'], $current_period['end_date']]);
 $all_users_rankings = $stmt->fetchAll();
 
 // Find current user's rank
@@ -60,101 +93,129 @@ include 'layout/header.php';
 ?>
 
 <div class="enhanced-dashboard">
-    <!-- Welcome Header -->
-    <div class="dashboard-welcome">
-        <div class="welcome-content">
-            <div class="greeting-section">
-                <div class="time-indicator">
-                    <span class="time-icon">🌅</span>
-                    <span class="greeting-text">Good <?php echo date('H') < 12 ? 'Morning' : (date('H') < 18 ? 'Afternoon' : 'Evening'); ?></span>
+    <!-- User Performance Card/Form -->
+    <div class="user-performance-card">
+        <div class="card-header-section">
+            <div class="header-left">
+                <div class="header-icon">
+                    <span class="icon-emoji">👤</span>
                 </div>
-                <h1 class="user-name"><?php echo htmlspecialchars($current_user['full_name']); ?></h1>
-                <p class="role-badge">🎯 Live Seller</p>
-            </div>
-            <div class="current-date">
-                <div class="date-display">
-                    <span class="day"><?php echo date('d'); ?></span>
-                    <div class="date-info">
-                        <span class="month"><?php echo date('M'); ?></span>
-                        <span class="year"><?php echo date('Y'); ?></span>
-                    </div>
+                <div class="header-text">
+                    <h2 class="card-title">My Performance Dashboard</h2>
+                    <p class="card-subtitle">Track your progress and achievements</p>
                 </div>
             </div>
-        </div>
-    </div>
-
-    <!-- Enhanced User Stats Cards -->
-    <div class="stats-grid">
-        <div class="stat-card working-days">
-            <div class="card-background">
-                <div class="bg-pattern"></div>
-            </div>
-            <div class="card-content">
-                <div class="stat-header">
-                    <div class="stat-icon-wrapper">
-                        <span class="stat-icon">📅</span>
+            <div class="header-right">
+                <!-- Compact Pay Period Info -->
+                <div class="compact-period-info">
+                    <div class="period-badge">
+                        <div class="period-icon-small">📅</div>
+                        <div class="period-text">
+                            <span class="period-label">CURRENT PERIOD:</span>
+                            <span class="period-value"><?php echo $current_period['period_name']; ?></span>
+                        </div>
                     </div>
-                    <div class="stat-trend">
-                        <span class="trend-indicator positive">↗</span>
+                    <div class="countdown-badge">
+                        <div class="countdown-number"><?php echo $days_until_reset; ?></div>
+                        <div class="countdown-text">DAYS LEFT</div>
                     </div>
-                </div>
-                <div class="stat-body">
-                    <h3 class="stat-title">Working Days</h3>
-                    <div class="stat-value-container">
-                        <span class="stat-value"><?php echo number_format($user_working_days); ?></span>
-                        <span class="stat-unit">days</span>
-                    </div>
-                    <p class="stat-description">Total attendance recorded</p>
                 </div>
             </div>
         </div>
-
-        <div class="stat-card working-hours">
-            <div class="card-background">
-                <div class="bg-pattern"></div>
-            </div>
-            <div class="card-content">
-                <div class="stat-header">
-                    <div class="stat-icon-wrapper">
-                        <span class="stat-icon">⏰</span>
-                    </div>
-                    <div class="stat-trend">
-                        <span class="trend-indicator positive">↗</span>
+               
+        <div class="performance-form">
+            <div class="form-row">
+                <div class="form-group">
+                    <label class="form-label">
+                        <span class="label-icon">👤</span>
+                        Full Name
+                    </label>
+                    <div class="form-value">
+                        <?php echo htmlspecialchars($current_user['full_name']); ?>
                     </div>
                 </div>
-                <div class="stat-body">
-                    <h3 class="stat-title">Working Hours</h3>
-                    <div class="stat-value-container">
-                        <span class="stat-value"><?php echo number_format($user_working_hours, 1); ?></span>
-                        <span class="stat-unit">hrs</span>
+                
+                <div class="form-group">
+                    <label class="form-label">
+                        <span class="label-icon">🎯</span>
+                        Experience Status
+                    </label>
+                    <div class="form-value">
+                        <span class="role-badge-inline <?php echo $current_user['experienced_status'] === 'tenured' ? 'tenured-badge' : 'newbie-badge'; ?>">
+                            <?php echo ucfirst($current_user['experienced_status']); ?>
+                        </span>
                     </div>
-                    <p class="stat-description">Total time commitment</p>
                 </div>
             </div>
-        </div>
-
-        <div class="stat-card current-rank">
-            <div class="card-background">
-                <div class="bg-pattern"></div>
-            </div>
-            <div class="card-content">
-                <div class="stat-header">
-                    <div class="stat-icon-wrapper">
-                        <span class="stat-icon">🏆</span>
+            
+            <div class="form-row">
+                <div class="form-group">
+                    <label class="form-label">
+                        <span class="label-icon">📅</span>
+                        Total Working Days
+                    </label>
+                    <div class="form-value highlight-value">
+                        <span class="value-number"><?php echo number_format($user_working_days); ?></span>
+                        <span class="value-unit">days</span>
                     </div>
-                    <div class="rank-badge rank-<?php echo $current_user_rank <= 3 ? 'top' : 'standard'; ?>">
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">
+                        <span class="label-icon">⏰</span>
+                        Total Working Hours
+                    </label>
+                    <div class="form-value highlight-value">
+                        <span class="value-number"><?php echo number_format($user_working_hours, 1); ?></span>
+                        <span class="value-unit">hours</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="form-row">
+                <div class="form-group">
+                    <label class="form-label">
+                        <span class="label-icon">💰</span>
+                        Total Sales
+                    </label>
+                    <div class="form-value highlight-value sales-value">
+                        <span class="value-number"><?php echo number_format($user_total_sales); ?></span>
+                        <span class="value-unit">items</span>
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">
+                        <span class="label-icon">🏆</span>
+                        Current Ranking
+                    </label>
+                    <div class="form-value highlight-value rank-value">
+                        <span class="rank-display">
+                            <span class="rank-number">#<?php echo $current_user_rank; ?></span>
+                            <span class="rank-total">of <?php echo count($all_users_rankings); ?></span>
+                        </span>
                         <?php if ($current_user_rank <= 3): ?>
-                            <span class="crown">👑</span>
+                            <span class="rank-crown">👑</span>
                         <?php endif; ?>
                     </div>
                 </div>
-                <div class="stat-body">
-                    <h3 class="stat-title">Current Rank</h3>
-                    <div class="stat-value-container">
-                        <span class="stat-value">#<?php echo $current_user_rank; ?></span>
-                        <span class="stat-unit">of <?php echo count($all_users_rankings); ?></span>
-                    </div>
-                    <p class="stat-description"><?php echo $current_user_rank <= 3 ? 'Top performer!' : 'Keep pushing!'; ?></p>
+            </div>
+            
+            <div class="performance-footer">
+                <div class="performance-message">
+                    <?php if ($current_user_rank == 1): ?>
+                        <span class="message-icon">🎉</span>
+                        <span class="message-text">Congratulations! You're currently ranked #1!</span>
+                    <?php elseif ($current_user_rank <= 3): ?>
+                        <span class="message-icon">🌟</span>
+                        <span class="message-text">Amazing! You're in the top 3 performers!</span>
+                    <?php elseif ($current_user_rank <= 10): ?>
+                        <span class="message-icon">💪</span>
+                        <span class="message-text">Great job! You're in the top 10!</span>
+                    <?php else: ?>
+                        <span class="message-icon">🚀</span>
+                        <span class="message-text">Keep pushing! You can climb higher!</span>
+                    <?php endif; ?>
                 </div>
             </div>
         </div>
@@ -164,18 +225,18 @@ include 'layout/header.php';
     <div class="ranking-section">
         <div class="section-header">
             <div class="header-content">
+                <img src="<?php echo $base; ?>/tik-tok.png" alt="TikTok" class="ranking-tiktok-logo">
                 <h2 class="section-title">
-                    <span class="title-icon">🏆</span>
-                    Live Sellers Leaderboard
+                    Live Host Ranking
                 </h2>
-                <p class="section-subtitle">Performance rankings based on working hours and dedication</p>
             </div>
-            <div class="header-stats">
-                <div class="total-sellers">
-                    <span class="count"><?php echo count($all_users_rankings); ?></span>
-                    <span class="label">Active Sellers</span>
-                </div>
-            </div>
+        </div>
+        
+        <!-- Congratulations Banner -->
+        <div class="congratulations-banner">
+            <div class="congrats-text">CONGRATULATIONS!</div>
+            <div class="congrats-subtitle">Live Ranking Highest Solds</div>
+            <div class="congrats-date">Month of <?php echo date('F Y'); ?></div>
         </div>
         
         <!-- Enhanced Top 3 Podium -->
@@ -197,15 +258,18 @@ include 'layout/header.php';
                             <div class="profile-circle silver-circle">
                                 <div class="circle-glow silver-glow"></div>
                                 <div class="avatar-content">
-                                    <span class="avatar-initial"><?php echo strtoupper(substr($all_users_rankings[1]['full_name'], 0, 1)); ?></span>
+                                    <?php if (!empty($all_users_rankings[1]['profile_image'])): ?>
+                                        <img src="<?php echo htmlspecialchars(get_profile_image_path($all_users_rankings[1]['profile_image'])); ?>" alt="Profile" class="profile-image">
+                                    <?php else: ?>
+                                        <span class="avatar-initial"><?php echo strtoupper(substr($all_users_rankings[1]['full_name'], 0, 1)); ?></span>
+                                    <?php endif; ?>
                                 </div>
                                 <div class="medal-overlay silver-medal">🥈</div>
                             </div>
                             <div class="contestant-details">
                                 <h4 class="contestant-name"><?php echo htmlspecialchars($all_users_rankings[1]['full_name']); ?></h4>
                                 <div class="performance-stats">
-                                    <span class="hours"><?php echo number_format($all_users_rankings[1]['working_hours'], 1); ?>h</span>
-                                    <span class="days"><?php echo number_format($all_users_rankings[1]['working_days']); ?> days</span>
+                                    <span class="hours">💰 <?php echo number_format($all_users_rankings[1]['total_sales']); ?> sales</span>
                                 </div>
                             </div>
                         </div>
@@ -227,17 +291,20 @@ include 'layout/header.php';
                             <div class="profile-circle gold-circle">
                                 <div class="circle-glow gold-glow"></div>
                                 <div class="avatar-content">
-                                    <span class="avatar-initial"><?php echo strtoupper(substr($all_users_rankings[0]['full_name'], 0, 1)); ?></span>
+                                    <?php if (!empty($all_users_rankings[0]['profile_image'])): ?>
+                                        <img src="<?php echo htmlspecialchars(get_profile_image_path($all_users_rankings[0]['profile_image'])); ?>" alt="Profile" class="profile-image">
+                                    <?php else: ?>
+                                        <span class="avatar-initial"><?php echo strtoupper(substr($all_users_rankings[0]['full_name'], 0, 1)); ?></span>
+                                    <?php endif; ?>
                                 </div>
                                 <div class="medal-overlay gold-medal">🥇</div>
                             </div>
                             <div class="contestant-details">
                                 <h4 class="contestant-name champion-name"><?php echo htmlspecialchars($all_users_rankings[0]['full_name']); ?></h4>
                                 <div class="performance-stats">
-                                    <span class="hours"><?php echo number_format($all_users_rankings[0]['working_hours'], 1); ?>h</span>
-                                    <span class="days"><?php echo number_format($all_users_rankings[0]['working_days']); ?> days</span>
+                                    <span class="hours">💰 <?php echo number_format($all_users_rankings[0]['total_sales']); ?> sales</span>
                                 </div>
-                                <div class="champion-badge">🎯 Champion</div>
+                                <div class="champion-badge">🎯 Top Seller</div>
                             </div>
                         </div>
                     </div>
@@ -254,15 +321,18 @@ include 'layout/header.php';
                             <div class="profile-circle bronze-circle">
                                 <div class="circle-glow bronze-glow"></div>
                                 <div class="avatar-content">
-                                    <span class="avatar-initial"><?php echo strtoupper(substr($all_users_rankings[2]['full_name'], 0, 1)); ?></span>
+                                    <?php if (!empty($all_users_rankings[2]['profile_image'])): ?>
+                                        <img src="<?php echo htmlspecialchars(get_profile_image_path($all_users_rankings[2]['profile_image'])); ?>" alt="Profile" class="profile-image">
+                                    <?php else: ?>
+                                        <span class="avatar-initial"><?php echo strtoupper(substr($all_users_rankings[2]['full_name'], 0, 1)); ?></span>
+                                    <?php endif; ?>
                                 </div>
                                 <div class="medal-overlay bronze-medal">🥉</div>
                             </div>
                             <div class="contestant-details">
                                 <h4 class="contestant-name"><?php echo htmlspecialchars($all_users_rankings[2]['full_name']); ?></h4>
                                 <div class="performance-stats">
-                                    <span class="hours"><?php echo number_format($all_users_rankings[2]['working_hours'], 1); ?>h</span>
-                                    <span class="days"><?php echo number_format($all_users_rankings[2]['working_days']); ?> days</span>
+                                    <span class="hours">💰 <?php echo number_format($all_users_rankings[2]['total_sales']); ?> sales</span>
                                 </div>
                             </div>
                         </div>
@@ -304,17 +374,13 @@ include 'layout/header.php';
                             </div>
                             
                             <div class="user-profile">
-                                <div class="user-avatar">
-                                    <div class="avatar-circle <?php echo $isCurrentUser ? 'current-user-avatar' : ''; ?>">
-                                        <span class="avatar-initial"><?php echo strtoupper(substr($user['full_name'], 0, 1)); ?></span>
-                                    </div>
-                                    <?php if ($isCurrentUser): ?>
-                                        <div class="user-indicator">⭐</div>
-                                    <?php endif; ?>
-                                </div>
                                 <div class="user-details">
                                     <h4 class="user-name"><?php echo htmlspecialchars($user['full_name']); ?></h4>
                                     <div class="user-metrics">
+                                        <div class="metric">
+                                            <span class="metric-icon">💰</span>
+                                            <span class="metric-value"><?php echo number_format($user['total_sales']); ?> sales</span>
+                                        </div>
                                         <div class="metric">
                                             <span class="metric-icon">⏰</span>
                                             <span class="metric-value"><?php echo number_format($user['working_hours'], 1); ?>h</span>
@@ -329,8 +395,8 @@ include 'layout/header.php';
                             
                             <div class="performance-indicator">
                                 <?php 
-                                $performance_percent = $user['working_hours'] > 0 ? 
-                                    min(100, ($user['working_hours'] / max(1, $all_users_rankings[0]['working_hours'])) * 100) : 0;
+                                $performance_percent = $user['total_sales'] > 0 && $all_users_rankings[0]['total_sales'] > 0 ? 
+                                    min(100, ($user['total_sales'] / $all_users_rankings[0]['total_sales']) * 100) : 0;
                                 ?>
                                 <div class="progress-ring">
                                     <svg class="progress-svg" width="40" height="40">

@@ -11,23 +11,101 @@ $current_user = get_logged_in_user();
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title><?php echo isset($page_title) ? $page_title . ' - ' : ''; ?><?php echo SITE_NAME; ?> Live Seller</title>
-    <link rel="stylesheet" href="../assets/css/style.css">
-    <link rel="stylesheet" href="../assets/css/admin.css">
-    <link rel="stylesheet" href="../assets/css/live-seller.css">
-    <link rel="icon" href="../assets/images/favicon.ico" type="image/x-icon">
+    <?php $base = defined('SITE_URL') ? rtrim(SITE_URL, '/') : '..' ; ?>
+    <link rel="stylesheet" href="<?php echo $base; ?>/assets/css/style.css?v=<?php echo time(); ?>">
+    <link rel="stylesheet" href="<?php echo $base; ?>/assets/css/admin.css?v=<?php echo time(); ?>">
+    <link rel="stylesheet" href="<?php echo $base; ?>/assets/css/live-seller.css?v=<?php echo time(); ?>">
+    <link rel="icon" href="<?php echo $base; ?>/assets/images/favicon.ico" type="image/x-icon">
+    <style>
+        /* Critical CSS to ensure sidebar renders correctly immediately */
+        .live-seller-layout .sidebar {
+            background: linear-gradient(180deg, #1a1d2e 0%, #16171f 100%) !important;
+            border-right: 1px solid rgba(255, 255, 255, 0.08) !important;
+            box-shadow: 4px 0 20px rgba(0, 0, 0, 0.3) !important;
+        }
+        .live-seller-layout .sidebar-header {
+            border-bottom: 1px solid rgba(255, 255, 255, 0.06) !important;
+            background: rgba(20, 22, 32, 0.5);
+        }
+        .live-seller-layout .sidebar .logo-icon {
+            background: linear-gradient(135deg, #667eea, #764ba2) !important;
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.25) !important;
+        }
+        .live-seller-layout .sidebar-footer {
+            border-top: 1px solid rgba(255, 255, 255, 0.06) !important;
+            background: rgba(20, 22, 32, 0.5) !important;
+        }
+        .live-seller-layout .sidebar-footer .user-avatar {
+            width: 42px !important;
+            height: 42px !important;
+            background: linear-gradient(135deg, #667eea, #764ba2) !important;
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.25) !important;
+            border: 2px solid rgba(102, 126, 234, 0.2) !important;
+            border-radius: 11px !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            font-weight: 800 !important;
+            color: white !important;
+            font-size: 1.1rem !important;
+        }
+        .live-seller-layout .user-menu-toggle .user-avatar {
+            width: 36px !important;
+            height: 36px !important;
+            border-radius: 10px !important;
+            background: linear-gradient(135deg, #667eea, #764ba2) !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            color: #ffffff !important;
+            font-size: 0.9rem !important;
+            font-weight: 800 !important;
+        }
+        .live-seller-layout .dropdown-avatar {
+            width: 42px !important;
+            height: 42px !important;
+            border-radius: 10px !important;
+            background: linear-gradient(135deg, #667eea, #764ba2) !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            font-weight: 800 !important;
+            color: white !important;
+            font-size: 1.1rem !important;
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3) !important;
+            border: 2px solid rgba(102, 126, 234, 0.2) !important;
+        }
+        .live-seller-layout .nav-link {
+            color: rgba(255, 255, 255, 0.5) !important;
+        }
+        .live-seller-layout .nav-link.active {
+            background: rgba(102, 126, 234, 0.15) !important;
+            color: #8b94e7 !important;
+            box-shadow: 0 0 15px rgba(102, 126, 234, 0.1) !important;
+        }
+        .live-seller-layout .nav-link.active::before {
+            background: linear-gradient(180deg, #667eea, #764ba2) !important;
+        }
+        .live-seller-layout .nav-section-title {
+            color: rgba(139, 148, 195, 0.6) !important;
+        }
+    </style>
 </head>
 <body class="admin-layout live-seller-layout">
     <!-- Sidebar -->
     <aside class="sidebar">
         <div class="sidebar-header">
             <div class="logo">
-                <div class="logo-icon">🎯</div>
+                <div class="logo-icon">
+                    <img src="<?php echo $base; ?>/tik-tok.png" alt="TikTok" style="width: 28px; height: 28px; object-fit: contain;">
+                </div>
                 <span>Live Seller</span>
             </div>
         </div>
 
-        <nav class="sidebar-nav">
+        <nav class="sidebar-nav">       
             <ul class="nav-menu">
+                <li class="nav-section-title">Main</li>
                 <li class="nav-item">
                     <a href="dashboard.php" class="nav-link <?php echo basename($_SERVER['PHP_SELF']) === 'dashboard.php' ? 'active' : ''; ?>">
                         <span class="nav-icon">🏠</span>
@@ -35,51 +113,18 @@ $current_user = get_logged_in_user();
                     </a>
                 </li>
                 
-                <li class="nav-item">
-                    <a href="streams.php" class="nav-link <?php echo basename($_SERVER['PHP_SELF']) === 'streams.php' ? 'active' : ''; ?>">
-                        <span class="nav-icon">📺</span>
-                        <span class="nav-text">My Streams</span>
-                    </a>
-                </li>
-                
-                <li class="nav-item">
-                    <a href="stream-new.php" class="nav-link <?php echo basename($_SERVER['PHP_SELF']) === 'stream-new.php' ? 'active' : ''; ?>">
-                        <span class="nav-icon">➕</span>
-                        <span class="nav-text">New Stream</span>
-                    </a>
-                </li>
-                
+                <li class="nav-section-title">Work</li>
                 <li class="nav-item">
                     <a href="schedule.php" class="nav-link <?php echo basename($_SERVER['PHP_SELF']) === 'schedule.php' ? 'active' : ''; ?>">
                         <span class="nav-icon">📅</span>
-                        <span class="nav-text">Schedule</span>
+                        <span class="nav-text">My Schedule</span>
                     </a>
                 </li>
                 
-                <li class="nav-item">
-                    <a href="analytics.php" class="nav-link <?php echo basename($_SERVER['PHP_SELF']) === 'analytics.php' ? 'active' : ''; ?>">
-                        <span class="nav-icon">📊</span>
-                        <span class="nav-text">Analytics</span>
-                    </a>
-                </li>
-                
-                <li class="nav-item">
-                    <a href="earnings.php" class="nav-link <?php echo basename($_SERVER['PHP_SELF']) === 'earnings.php' ? 'active' : ''; ?>">
-                        <span class="nav-icon">💰</span>
-                        <span class="nav-text">Earnings</span>
-                    </a>
-                </li>
-                
-                <li class="nav-item">
-                    <a href="profile.php" class="nav-link <?php echo basename($_SERVER['PHP_SELF']) === 'profile.php' ? 'active' : ''; ?>">
-                        <span class="nav-icon">👤</span>
-                        <span class="nav-text">Profile</span>
-                    </a>
-                </li>
             </ul>
         </nav>
 
-        <div class="sidebar-footer">
+        <div class="sidebar-footer">    
             <div class="user-info">
                 <div class="user-avatar">
                     <?php echo strtoupper(substr($current_user['full_name'], 0, 1)); ?>
@@ -120,18 +165,15 @@ $current_user = get_logged_in_user();
                         </button>
                         
                         <div class="user-dropdown" id="userDropdown">
-                            <a href="profile.php" class="dropdown-item">
-                                <span class="item-icon">👤</span>
-                                Profile
-                            </a>
-                            <a href="earnings.php" class="dropdown-item">
-                                <span class="item-icon">💰</span>
-                                Earnings
-                            </a>
-                            <a href="settings.php" class="dropdown-item">
-                                <span class="item-icon">⚙️</span>
-                                Settings
-                            </a>
+                            <div class="dropdown-user-info">
+                                <div class="dropdown-avatar">
+                                    <?php echo strtoupper(substr($current_user['full_name'], 0, 1)); ?>
+                                </div>
+                                <div class="dropdown-user-details">
+                                    <div class="dropdown-user-name"><?php echo htmlspecialchars($current_user['full_name']); ?></div>
+                                    <div class="dropdown-user-role">Live Seller</div>
+                                </div>
+                            </div>
                             <div class="dropdown-divider"></div>
                             <a href="../logout.php" class="dropdown-item">
                                 <span class="item-icon">🚪</span>

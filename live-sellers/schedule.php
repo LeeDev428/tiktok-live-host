@@ -10,14 +10,25 @@ $current_user = get_logged_in_user();
 // Get seller dashboard stats
 $db = getDB();
 
-// Get today's date
-$today = date('Y-m-d');
+// Get today's date with 6:00 AM cutoff
+// If current time is before 6:00 AM, use yesterday's date
+// If current time is 6:00 AM or after, use today's date
+$current_hour = (int)date('H');
+$current_time = date('H:i:s');
+
+if ($current_hour < 6) {
+    // Before 6:00 AM - still counts as previous day
+    $today = date('Y-m-d', strtotime('-1 day'));
+} else {
+    // 6:00 AM or after - new day starts    
+    $today = date('Y-m-d');
+}
+
 $view_date = $_GET['date'] ?? $today;
 
-// Check if user already has attendance for today
 $stmt = $db->prepare("
     SELECT COUNT(*) as attendance_count 
-    FROM seller_attendance 
+    FROM attendance 
     WHERE seller_id = ? AND attendance_date = ? AND status != 'cancelled'
 ");
 $stmt->execute([$current_user['id'], $today]);
@@ -39,10 +50,10 @@ if ($view_date < $today) {
 
 // Get attendance data for the viewed date
 $stmt = $db->prepare("
-    SELECT sa.*, ats.name as slot_name, ats.duration_hours, ats.start_time, ats.end_time
-    FROM seller_attendance sa
-    JOIN attendance_time_slots ats ON sa.time_slot_id = ats.id
-    WHERE sa.seller_id = ? AND sa.attendance_date = ?
+    SELECT a.*, ats.name as slot_name, ats.duration_hours, ats.start_time, ats.end_time
+    FROM attendance a
+    LEFT JOIN attendance_time_slots ats ON a.time_slot = ats.id
+    WHERE a.seller_id = ? AND a.attendance_date = ?
     ORDER BY ats.start_time
 ");
 $stmt->execute([$current_user['id'], $view_date]);
@@ -70,7 +81,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             try {
                 $slot_data = json_decode($custom_slot_data, true);
                 
-                if ($slot_data && isset($slot_data['duration'], $slot_data['start_time'], $slot_data['end_time'], $slot_data['name'])) {
+                    if ($slot_data && isset($slot_data['duration'], $slot_data['start_time'], $slot_data['end_time'], $slot_data['name'])) {
                     // First, check if a time slot with these exact times already exists
                     $stmt = $db->prepare("
                         SELECT id FROM attendance_time_slots 
@@ -98,8 +109,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     
                     // Check if this seller already has this slot scheduled for the same date
                     $stmt = $db->prepare("
-                        SELECT id FROM seller_attendance 
-                        WHERE seller_id = ? AND attendance_date = ? AND time_slot_id = ?
+                        SELECT id FROM attendance 
+                        WHERE seller_id = ? AND attendance_date = ? AND time_slot = ?
                     ");
                     $stmt->execute([$current_user['id'], $attendance_date, $time_slot_id]);
                     $existing_attendance = $stmt->fetch();
@@ -107,19 +118,61 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     if ($existing_attendance) {
                         $error_message = "You have already scheduled this time slot for the selected date.";
                     } else {
-                        // Schedule the attendance
-                        $stmt = $db->prepare("
-                            INSERT INTO seller_attendance (seller_id, attendance_date, time_slot_id, status)
-                            VALUES (?, ?, ?, 'scheduled')
-                        ");
-                        $stmt->execute([$current_user['id'], $attendance_date, $time_slot_id]);
-                        
-                        // Set session flag for successful submission
-                        $_SESSION['attendance_submitted'] = true;
-                        
-                        // Redirect to prevent form resubmission
-                        header('Location: ' . $_SERVER['REQUEST_URI']);
-                        exit;
+                        // Handle solds and photo upload (photo is required)
+                        $solds_qty = isset($_POST['solds']) ? (int)$_POST['solds'] : 0;
+                        $photo_path = null;
+                        if (!isset($_FILES['sold_photo']) || $_FILES['sold_photo']['error'] !== UPLOAD_ERR_OK) {
+                            $error_message = "Please upload your total sold photo before submitting.";
+                            $photo_error = $error_message;
+                        } else {
+                            $upload_dir = __DIR__ . '/../uploads/attendance/';
+                            if (!file_exists($upload_dir)) mkdir($upload_dir, 0755, true);
+                            $ext = pathinfo($_FILES['sold_photo']['name'], PATHINFO_EXTENSION);
+                            $filename = 'sold_' . $current_user['id'] . '_' . time() . '.' . $ext;
+                            $dest = $upload_dir . $filename;
+                            if (move_uploaded_file($_FILES['sold_photo']['tmp_name'], $dest)) {
+                                $photo_path = 'uploads/attendance/' . $filename;
+                            } else {
+                                $error_message = "Failed to save uploaded photo. Please try again.";
+                                $photo_error = $error_message;
+                            }
+                        }
+
+                            // Compute hours_worked from slot start/end times (handle overnight shifts)
+                            $hoursWorked = null;
+                            if (!empty($slot_data['start_time']) && !empty($slot_data['end_time'])) {
+                                try {
+                                    $startDt = new DateTime($attendance_date . ' ' . $slot_data['start_time']);
+                                    $endDt = new DateTime($attendance_date . ' ' . $slot_data['end_time']);
+                                    if ($endDt <= $startDt) {
+                                        // assume end time is next day (overnight shift)
+                                        $endDt->modify('+1 day');
+                                    }
+                                    $diffSeconds = $endDt->getTimestamp() - $startDt->getTimestamp();
+                                    $hoursWorked = round($diffSeconds / 3600, 2);
+                                } catch (Exception $e) {
+                                    // if anything goes wrong, leave hoursWorked as null
+                                    $hoursWorked = null;
+                                }
+                            }
+
+                        // Only insert if there is no validation error
+                        if (empty($error_message)) {
+                            // Schedule the attendance into new table (persist hours_worked)
+                            // Set status to 'completed' since user is submitting with sold data and photo
+                            $stmt = $db->prepare("
+                                INSERT INTO attendance (seller_id, attendance_date, duration, time_slot, solds_quantity, total_sold_photo, hours_worked, status)
+                                VALUES (?, ?, ?, ?, ?, ?, ?, 'completed')
+                            ");
+                            $stmt->execute([$current_user['id'], $attendance_date, $slot_data['duration'] . '-hour', $time_slot_id, $solds_qty, $photo_path, $hoursWorked]);
+
+                            // Set session flag for successful submission
+                            $_SESSION['attendance_submitted'] = true;
+
+                            // Redirect to prevent form resubmission
+                            header('Location: ' . $_SERVER['REQUEST_URI']);
+                            exit;
+                        }
                     }
                 } else {
                     $error_message = "Invalid slot data provided.";
@@ -130,35 +183,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } else {
             $error_message = "Please select both duration and time slot.";
         }
-    } elseif ($action === 'check_in') {
-        $attendance_id = $_POST['attendance_id'] ?? '';
-        if ($attendance_id) {
-            $stmt = $db->prepare("
-                UPDATE seller_attendance 
-                SET status = 'checked_in', check_in_time = CURRENT_TIME, updated_at = CURRENT_TIMESTAMP
-                WHERE id = ? AND seller_id = ?
-            ");
-            $stmt->execute([$attendance_id, $current_user['id']]);
-            $success_message = "Checked in successfully!";
-        }
-    } elseif ($action === 'check_out') {
-        $attendance_id = $_POST['attendance_id'] ?? '';
-        if ($attendance_id) {
-            $stmt = $db->prepare("
-                UPDATE seller_attendance 
-                SET status = 'completed', check_out_time = CURRENT_TIME,
-                    actual_hours = TIME_TO_SEC(TIMEDIFF(CURRENT_TIME, check_in_time)) / 3600,
-                    updated_at = CURRENT_TIMESTAMP
-                WHERE id = ? AND seller_id = ?
-            ");
-            $stmt->execute([$attendance_id, $current_user['id']]);
-            $success_message = "Checked out successfully!";
-        }
     } elseif ($action === 'cancel_slot') {
         $attendance_id = $_POST['attendance_id'] ?? '';
         if ($attendance_id) {
             $stmt = $db->prepare("
-                UPDATE seller_attendance 
+                UPDATE attendance 
                 SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP
                 WHERE id = ? AND seller_id = ? AND status = 'scheduled'
             ");
@@ -169,10 +198,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     
     // Refresh attendance data after action
     $stmt = $db->prepare("
-        SELECT sa.*, ats.name as slot_name, ats.duration_hours, ats.start_time, ats.end_time
-        FROM seller_attendance sa
-        JOIN attendance_time_slots ats ON sa.time_slot_id = ats.id
-        WHERE sa.seller_id = ? AND sa.attendance_date = ?
+        SELECT a.*, ats.name as slot_name, ats.duration_hours, ats.start_time, ats.end_time
+        FROM attendance a
+        LEFT JOIN attendance_time_slots ats ON a.time_slot = ats.id
+        WHERE a.seller_id = ? AND a.attendance_date = ?
         ORDER BY ats.start_time
     ");
     $stmt->execute([$current_user['id'], $view_date]);
@@ -181,11 +210,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 // Get upcoming schedule (next 7 days)
 $stmt = $db->prepare("
-    SELECT sa.*, ats.name as slot_name, ats.duration_hours, ats.start_time, ats.end_time
-    FROM seller_attendance sa
-    JOIN attendance_time_slots ats ON sa.time_slot_id = ats.id
-    WHERE sa.seller_id = ? AND sa.attendance_date BETWEEN ? AND DATE_ADD(?, INTERVAL 7 DAY)
-    ORDER BY sa.attendance_date, ats.start_time
+    SELECT a.*, ats.name as slot_name, ats.duration_hours, ats.start_time, ats.end_time
+    FROM attendance a
+    LEFT JOIN attendance_time_slots ats ON a.time_slot = ats.id
+    WHERE a.seller_id = ? AND a.attendance_date BETWEEN ? AND DATE_ADD(?, INTERVAL 7 DAY)
+    ORDER BY a.attendance_date, ats.start_time
 ");
 $stmt->execute([$current_user['id'], $today, $today]);
 $upcoming_schedule = $stmt->fetchAll();
@@ -242,8 +271,21 @@ include 'layout/header.php';
                             <div class="info-content-compact">
                                 <span class="info-icon">🕐</span>
                                 <div class="info-text">
-                                    <p class="next-date">Next submission available tomorrow, <strong><?php echo date('F j, Y', strtotime('+1 day')); ?></strong></p>
-                                    <p class="thank-you">Thank you for your participation!</p>
+                                    <?php 
+                                    // Calculate next submission time based on 6:00 AM cutoff
+                                    $current_hour = (int)date('H');
+                                    if ($current_hour < 6) {
+                                        // Before 6:00 AM - next submission is today at 6:00 AM
+                                        $next_date = date('F j, Y');
+                                        $next_day_text = "today";
+                                    } else {
+                                        // 6:00 AM or after - next submission is tomorrow at 6:00 AM
+                                        $next_date = date('F j, Y', strtotime('+1 day'));
+                                        $next_day_text = "tomorrow";
+                                    }
+                                    ?>
+                                    <p class="next-date">Next submission available <?php echo $next_day_text; ?>, <strong><?php echo $next_date; ?> at 6:00 AM</strong></p>
+                                    <p class="thank-you">Attendance resets daily at 6:00 AM. Thank you for your participation!</p>
                                 </div>
                             </div>
                         </div>
@@ -303,12 +345,15 @@ include 'layout/header.php';
                 
                 <div class="form-group full-width">
                     <label for="sold_photo">📱 Total Sold Photo:</label>
-                    <div class="photo-upload-container">
+                    <div class="photo-upload-container" <?php echo isset($photo_error) ? "style='border:2px solid #ff6b6b; padding:8px; border-radius:6px;'" : ''; ?> >
                         <input type="file" id="sold_photo" name="sold_photo" accept="image/*" class="file-input">
                         <div class="upload-placeholder" onclick="document.getElementById('sold_photo').click()">
                             <span class="upload-icon">📷</span>
                             <p>Upload your total sold photo</p>
                             <span class="btn btn-outline">Choose Photo</span>
+                        </div>
+                        <div id="photo-error" class="field-error" style="color:#ff6b6b; margin-top:8px; display: <?php echo isset($photo_error) ? 'block' : 'none'; ?>; ">
+                            <?php echo htmlspecialchars($photo_error ?? ''); ?>
                         </div>
                         <div id="photo-preview" class="photo-preview" style="display: none;">
                             <img id="preview-image" src="" alt="Preview">
@@ -452,8 +497,33 @@ document.getElementById('sold_photo').addEventListener('change', function(e) {
             document.getElementById('preview-image').src = e.target.result;
             document.getElementById('photo-preview').style.display = 'block';
             document.querySelector('.upload-placeholder').style.display = 'none';
+            // clear inline photo error and red border when a file is chosen
+            const photoErrorEl = document.getElementById('photo-error');
+            const uploadDiv = document.querySelector('.photo-upload-container');
+            if (photoErrorEl) { photoErrorEl.style.display = 'none'; photoErrorEl.textContent = ''; }
+            if (uploadDiv) { uploadDiv.style.border = ''; }
         };
         reader.readAsDataURL(file);
+    }
+});
+
+// Prevent form submit if no photo selected and show inline error
+document.querySelector('.simple-schedule-form').addEventListener('submit', function(e) {
+    const fileInput = document.getElementById('sold_photo');
+    const photoErrorEl = document.getElementById('photo-error');
+    if (!fileInput || !fileInput.files || fileInput.files.length === 0) {
+        e.preventDefault();
+        if (photoErrorEl) {
+            photoErrorEl.textContent = 'Please upload your total sold photo before submitting the schedule.';
+            photoErrorEl.style.display = 'block';
+        } else {
+            alert('Please upload your total sold photo before submitting the schedule.');
+        }
+        return false;
+    } else {
+        if (photoErrorEl) {
+            photoErrorEl.style.display = 'none';
+        }
     }
 });
 

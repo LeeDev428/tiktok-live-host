@@ -20,10 +20,10 @@ if ($_POST) {
         $username = sanitize_input($_POST['username'] ?? '');
         $email = sanitize_input($_POST['email'] ?? '');
         $password = $_POST['password'] ?? '';
-        $experience_status = sanitize_input($_POST['experience_status'] ?? '');
+        $experienced_status = sanitize_input($_POST['experienced_status'] ?? '');
         
         // Validation
-        if (empty($full_name) || empty($username) || empty($email) || empty($password) || empty($experience_status)) {
+    if (empty($full_name) || empty($username) || empty($email) || empty($password) || empty($experienced_status)) {
             $error = 'All fields are required.';
         } elseif (!validate_email($email)) {
             $error = 'Please enter a valid email address.';
@@ -63,21 +63,19 @@ if ($_POST) {
                     }
                 }
                 
-                if (empty($error)) {
+                    if (empty($error)) {
                     // Insert new user
                     $hashed_password = password_hash($password, PASSWORD_DEFAULT);
-                    $stmt = $db->prepare("
-                        INSERT INTO users (username, email, password, role, full_name, profile_image, experience_status, status) 
-                        VALUES (?, ?, ?, 'live_seller', ?, ?, ?, 'active')
-                    ");
+                    $sql = "INSERT INTO users (username, email, password, role, full_name, profile_image, experienced_status, status) VALUES (?, ?, ?, 'live_seller', ?, ?, ?, 'active')";
+                    $stmt = $db->prepare($sql);
                     
-                    if ($stmt->execute([$username, $email, $hashed_password, $full_name, $profile_image, $experience_status])) {
+                    if ($stmt->execute([$username, $email, $hashed_password, $full_name, $profile_image, $experienced_status])) {
                         $new_user_id = $db->lastInsertId();
                         log_activity($_SESSION['user_id'], 'create_user', "Created new user: $username");
                         $message = 'User created successfully!';
                         
                         // Clear form data
-                        $full_name = $username = $email = $experience_status = '';
+                        $full_name = $username = $email = $experienced_status = '';
                     } else {
                         $error = 'Failed to create user. Please try again.';
                     }
@@ -95,7 +93,7 @@ include __DIR__ . '/layout/header.php';
         <div class="header-icon">👥</div>
         <div class="header-content">
             <h1>Create New User</h1>
-            <p>Add new users to your TikTok Live Host Agency.</p>
+            <p>Add new users to your TikTok Live Host Team.</p>
         </div>
     </div>
 
@@ -154,11 +152,11 @@ include __DIR__ . '/layout/header.php';
                 </div>
                 
                 <div class="form-field">
-                    <label for="experience_status">STATUS</label>
-                    <select id="experience_status" name="experience_status" required>
-                        <option value="">Select status</option>
-                        <option value="newbie" <?php echo (($experience_status ?? '') === 'newbie') ? 'selected' : ''; ?>>Newbie</option>
-                        <option value="tenured" <?php echo (($experience_status ?? '') === 'tenured') ? 'selected' : ''; ?>>Tenured</option>
+                    <label for="experienced_status">Experience Status</label>
+                    <select id="experienced_status" name="experienced_status" required>
+                        <option value="">Select experience status</option>
+                        <option value="newbie" <?php echo (($experienced_status ?? '') === 'newbie') ? 'selected' : ''; ?>>Newbie</option>
+                        <option value="tenured" <?php echo (($experienced_status ?? '') === 'tenured') ? 'selected' : ''; ?>>Tenured</option>
                     </select>
                     <small class="field-hint">Choose the user's experience level</small>
                 </div>
