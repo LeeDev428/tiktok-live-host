@@ -6,6 +6,6 @@ if (is_logged_in()) {
     logout_user();
 }
 
-// Redirect to landing page
-redirect('/tiktok-live-host/');
+// Redirect to landing page (root of domain)
+redirect('/');
 ?>
