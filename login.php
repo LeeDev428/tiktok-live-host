@@ -49,13 +49,13 @@ $csrf_token = generate_csrf_token();
     <!-- Header -->
     <header class="header">
         <nav class="nav">
-            <a href="/tiktok-live-host/" class="logo">
+            <a href="<?php echo SITE_URL; ?>/" class="logo">
                 <div class="logo-icon">
                     <img src="tik-tok.png" alt="TikTok" style="width: 28px; height: 28px; object-fit: contain;">
                 </div>
                 <span><?php echo SITE_NAME; ?></span>
             </a>
-            <a href="/tiktok-live-host/" class="back-btn">← Back to Home</a>
+            <a href="<?php echo SITE_URL; ?>/" class="back-btn">← Back to Home</a>
         </nav>
     </header>
 
