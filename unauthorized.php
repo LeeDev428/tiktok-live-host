@@ -39,11 +39,11 @@ $page_title = 'Access Denied';
                             Go to Dashboard
                         </a>
                     <?php else: ?>
-                        <a href="/tiktok-live-host/login.php" class="btn btn-primary">
+                        <a href="<?php echo SITE_URL; ?>/login.php" class="btn btn-primary">
                             Login
                         </a>
                     <?php endif; ?>
-                    <a href="/tiktok-live-host/" class="btn btn-outline">
+                    <a href="<?php echo SITE_URL; ?>/" class="btn btn-outline">
                         Go Home
                     </a>
                 </div>
