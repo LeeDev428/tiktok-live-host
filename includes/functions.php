@@ -30,6 +30,10 @@ function verify_csrf_token($token) {
 }
 
 function redirect($url) {
+    // Convert absolute paths to full URLs using SITE_URL
+    if (strpos($url, 'http') !== 0 && strpos($url, '/') === 0) {
+        $url = SITE_URL . $url;
+    }
     header("Location: $url");
     exit();
 }
@@ -40,14 +44,14 @@ function is_logged_in() {
 
 function require_login() {
     if (!is_logged_in()) {
-        redirect('/tiktok-live-host/login.php');
+        redirect('/login.php'); // Relative path - will use SITE_URL
     }
 }
 
 function require_role($required_role) {
     require_login();
     if ($_SESSION['user_role'] !== $required_role) {
-        redirect('/tiktok-live-host/unauthorized.php');
+        redirect('/unauthorized.php'); // Relative path - will use SITE_URL
     }
 }
 
@@ -111,14 +115,14 @@ function logout_user() {
 }
 
 function get_user_dashboard_url($role) {
-    $base_url = '/tiktok-live-host'; // Laragon project directory
+    // Use SITE_URL constant for proper domain routing
     switch ($role) {
         case 'admin':
-            return $base_url . '/admin/dashboard.php';
+            return SITE_URL . '/admin/dashboard.php';
         case 'live_seller':
-            return $base_url . '/live-sellers/dashboard.php';
+            return SITE_URL . '/live-sellers/dashboard.php';
         default:
-            return $base_url . '/';
+            return SITE_URL . '/';
     }
 }
 
