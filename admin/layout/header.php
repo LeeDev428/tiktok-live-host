@@ -119,13 +119,14 @@ $current_user = get_logged_in_user();
                         <span class="nav-text">Create User</span>
                     </a>
                 </li>
-                <li class="nav-item">
-                    <a href="user_management.php" class="nav-link <?php echo basename($_SERVER['PHP_SELF']) === 'user_management.php' ? 'active' : ''; ?>">
-                        <span class="nav-icon">👥</span>
-                        <span class="nav-text"> Sellers Management</span>
-                    </a>
-                </li>
                 
+                <li class="nav-section-title">Attendance</li>
+                <li class="nav-item">
+                    <a href="attendance_photos.php" class="nav-link <?php echo basename($_SERVER['PHP_SELF']) === 'attendance_photos.php' ? 'active' : ''; ?>">
+                        <span class="nav-icon">📸</span>
+                        <span class="nav-text">Attendance Photos</span>
+                    </a>
+                </li>            
             </ul>
         </nav>
 
