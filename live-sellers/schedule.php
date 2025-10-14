@@ -10,30 +10,68 @@ $current_user = get_logged_in_user();
 // Get seller dashboard stats
 $db = getDB();
 
-// Get today's date with 6:00 AM cutoff
-// If current time is before 6:00 AM, use yesterday's date
-// If current time is 6:00 AM or after, use today's date
+// Get today's date with different cutoffs based on what user submitted
+// 3-hour shifts: Reset at 5:00 AM (5 AM - 5 AM cycle)
+// 4-hour shifts: Reset at 6:00 AM (6 AM - 6 AM cycle)
 $current_hour = (int)date('H');
 $current_time = date('H:i:s');
 
-if ($current_hour < 6) {
-    // Before 6:00 AM - still counts as previous day
-    $today = date('Y-m-d', strtotime('-1 day'));
+// First, check what duration the user submitted (if any)
+$stmt = $db->prepare("
+    SELECT ats.duration_hours, a.attendance_date
+    FROM attendance a
+    LEFT JOIN attendance_time_slots ats ON a.time_slot = ats.id
+    WHERE a.seller_id = ? AND a.status != 'cancelled'
+    ORDER BY a.attendance_date DESC, a.created_at DESC
+    LIMIT 1
+");
+$stmt->execute([$current_user['id']]);
+$last_attendance = $stmt->fetch();
+
+// Determine the appropriate reset time based on last submitted duration
+if ($last_attendance) {
+    $last_duration = (int)$last_attendance['duration_hours'];
+    
+    if ($last_duration == 3) {
+        // User submitted 3-hour shift, use 5 AM reset
+        $reset_hour = 5;
+        $reset_time_text = "5:00 AM";
+    } else {
+        // User submitted 4-hour shift (or other), use 6 AM reset
+        $reset_hour = 6;
+        $reset_time_text = "6:00 AM";
+    }
+    
+    // Calculate today based on the user's submitted duration reset time
+    if ($current_hour < $reset_hour) {
+        $today = date('Y-m-d', strtotime('-1 day'));
+    } else {
+        $today = date('Y-m-d');
+    }
+    
+    // Check if user has attendance for today (based on their duration's reset time)
+    $stmt = $db->prepare("
+        SELECT COUNT(*) as attendance_count 
+        FROM attendance a
+        WHERE a.seller_id = ? AND a.attendance_date = ? AND a.status != 'cancelled'
+    ");
+    $stmt->execute([$current_user['id'], $today]);
+    $has_attendance_today = $stmt->fetchColumn() > 0;
 } else {
-    // 6:00 AM or after - new day starts    
-    $today = date('Y-m-d');
+    // No previous attendance, use default 5 AM reset (earliest slot)
+    $reset_hour = 5;
+    $reset_time_text = "5:00 AM";
+    
+    if ($current_hour < 5) {
+        $today = date('Y-m-d', strtotime('-1 day'));
+    } else {
+        $today = date('Y-m-d');
+    }
+    
+    $has_attendance_today = false;
 }
 
 $view_date = $_GET['date'] ?? $today;
-
-$stmt = $db->prepare("
-    SELECT COUNT(*) as attendance_count 
-    FROM attendance 
-    WHERE seller_id = ? AND attendance_date = ? AND status != 'cancelled'
-");
-$stmt->execute([$current_user['id'], $today]);
-$today_attendance_count = $stmt->fetchColumn();
-$has_attendance_today = $today_attendance_count > 0;
 
 // Check for successful submission
 $attendance_submitted = isset($_SESSION['attendance_submitted']) && $_SESSION['attendance_submitted'] === true;
@@ -72,8 +110,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $attendance_date = $_POST['attendance_date'] ?? $today;
         $custom_slot_data = $_POST['custom_slot_data'] ?? '';
         
-        // Validate that the date is not in the past
-        if ($attendance_date < $today) {
+        // Validate that the date is not in the past (use appropriate cutoff based on selected duration)
+        $slot_duration = isset($slot_data['duration']) ? (int)$slot_data['duration'] : 0;
+        
+        // Calculate applicable today based on selected duration
+        if ($slot_duration == 3 && $current_hour < 5) {
+            $applicable_today = date('Y-m-d', strtotime('-1 day'));
+        } elseif ($slot_duration == 4 && $current_hour < 6) {
+            $applicable_today = date('Y-m-d', strtotime('-1 day'));
+        } else {
+            $applicable_today = date('Y-m-d');
+        }
+        
+        if ($attendance_date < $applicable_today) {
             $error_message = "You cannot schedule for past dates. Please select today or a future date.";
         } elseif ($attendance_date > date('Y-m-d', strtotime('+30 days'))) {
             $error_message = "You can only schedule up to 30 days in advance.";
@@ -272,20 +321,25 @@ include 'layout/header.php';
                                 <span class="info-icon">🕐</span>
                                 <div class="info-text">
                                     <?php 
-                                    // Calculate next submission time based on 6:00 AM cutoff
+                                    // Calculate next submission time based on submitted duration's reset time
+                                    // Since user has already submitted for "today" (based on their reset time),
+                                    // the next submission is always at the next reset time
                                     $current_hour = (int)date('H');
-                                    if ($current_hour < 6) {
-                                        // Before 6:00 AM - next submission is today at 6:00 AM
-                                        $next_date = date('F j, Y');
+                                    
+                                    if ($current_hour < $reset_hour) {
+                                        // Before reset time - but they already submitted for "today"
+                                        // So next submission is at the reset time (which marks the start of the actual calendar day)
+                                        $actual_calendar_date = date('Y-m-d');
+                                        $next_date = date('F j, Y', strtotime($actual_calendar_date));
                                         $next_day_text = "today";
                                     } else {
-                                        // 6:00 AM or after - next submission is tomorrow at 6:00 AM
+                                        // After reset time - next submission is tomorrow at reset time
                                         $next_date = date('F j, Y', strtotime('+1 day'));
                                         $next_day_text = "tomorrow";
                                     }
                                     ?>
-                                    <p class="next-date">Next submission available <?php echo $next_day_text; ?>, <strong><?php echo $next_date; ?> at 6:00 AM</strong></p>
-                                    <p class="thank-you">Attendance resets daily at 6:00 AM. Thank you for your participation!</p>
+                                    <p class="next-date">Next submission available <?php echo $next_day_text; ?>, <strong><?php echo $next_date; ?> at <?php echo $reset_time_text; ?></strong></p>
+                                    <p class="thank-you">Your attendance resets at <strong><?php echo $reset_time_text; ?></strong> based on your <?php echo $last_duration; ?>-hour shift. Thank you for your participation!</p>
                                 </div>
                             </div>
                         </div>
